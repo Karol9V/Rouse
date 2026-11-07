@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#fff8f7">
+    <title>Iniciar sesión | Rouse</title>
+    <link rel="icon" type="image/png" href="/img/logo.png">
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body class="login-page">
+<main class="login-card">
+    <a class="brand login-brand" href="/" aria-label="Rouse, inicio">
+        <span class="brand-mark"><img src="/img/logo.png" alt=""></span>
+        <span class="brand-copy"><strong>rouse</strong><small>pastelería &amp; café</small></span>
+    </a>
+    <p class="eyebrow">BIENVENIDO DE NUEVO</p>
+    <h1>Iniciar sesión</h1>
+    <p class="login-description">Ingresa con tu cuenta para acceder al inventario.</p>
+    <form id="loginForm">
+        <label class="dialog-field">
+            <span>Correo electrónico</span>
+            <input name="correo" type="email" autocomplete="username" required autofocus>
+        </label>
+        <label class="dialog-field">
+            <span>Contraseña</span>
+            <input name="contrasena" type="password" autocomplete="current-password" required>
+        </label>
+        <p class="login-error" id="loginError" role="alert" hidden></p>
+        <button class="button button-primary login-submit" type="submit">Entrar</button>
+    </form>
+    <p class="login-footer">Acceso protegido por roles y permisos.</p>
+</main>
+<script src="/js/login.js"></script>
+</body>
+</html>
