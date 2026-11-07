@@ -1,5 +1,8 @@
 package com.prueba.inventario.model.vo;
 
+/**
+ * Datos de contacto y estado de un proveedor.
+ */
 public class ProveedorVO {
 
     private Long idProveedor;

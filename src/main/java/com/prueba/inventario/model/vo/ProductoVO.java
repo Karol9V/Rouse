@@ -2,6 +2,9 @@ package com.prueba.inventario.model.vo;
 
 import java.math.BigDecimal;
 
+/**
+ * Datos de un producto, incluidos precios, existencias y proveedor asociado.
+ */
 public class ProductoVO {
 
     private Long idProducto;

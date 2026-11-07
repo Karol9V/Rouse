@@ -2,6 +2,9 @@ package com.prueba.inventario.model.vo;
 
 import java.time.LocalDateTime;
 
+/**
+ * Datos de persistencia de un usuario, incluido el hash de su contraseña.
+ */
 public class UsuarioVO {
 
     private Long idUsuario;

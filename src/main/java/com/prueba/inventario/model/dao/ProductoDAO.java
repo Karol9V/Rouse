@@ -12,6 +12,9 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
+/**
+ * Ejecuta consultas y modificaciones JDBC para productos e inventario.
+ */
 @Repository
 public class ProductoDAO {
 
@@ -41,16 +44,29 @@ public class ProductoDAO {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /** @return todos los productos ordenados por identificador */
     public List<ProductoVO> listar() {
         return jdbcTemplate.query(SELECT_COLUMNAS + " ORDER BY id_producto", rowMapper);
     }
 
+    /**
+     * Busca un producto por identificador.
+     *
+     * @param idProducto identificador del producto
+     * @return producto si existe
+     */
     public Optional<ProductoVO> buscarPorId(Long idProducto) {
         List<ProductoVO> productos = jdbcTemplate.query(
                 SELECT_COLUMNAS + " WHERE id_producto = ?", rowMapper, idProducto);
         return productos.stream().findFirst();
     }
 
+    /**
+     * Inserta un producto y devuelve la clave generada.
+     *
+     * @param producto datos que se insertarán
+     * @return identificador generado
+     */
     public Long insertar(ProductoVO producto) {
         String sql = """
                 INSERT INTO productos
@@ -81,6 +97,12 @@ public class ProductoDAO {
         return obtenerIdGenerado(keyHolder);
     }
 
+    /**
+     * Actualiza un producto.
+     *
+     * @param producto datos actualizados, incluido su identificador
+     * @return número de filas afectadas
+     */
     public int actualizar(ProductoVO producto) {
         String sql = """
                 UPDATE productos
@@ -102,10 +124,23 @@ public class ProductoDAO {
                 producto.getIdProducto());
     }
 
+    /**
+     * Elimina el producto indicado.
+     *
+     * @param idProducto identificador del producto
+     * @return número de filas eliminadas
+     */
     public int eliminar(Long idProducto) {
         return jdbcTemplate.update("DELETE FROM productos WHERE id_producto = ?", idProducto);
     }
 
+    /**
+     * Descuenta la cantidad solicitada únicamente si hay existencias suficientes.
+     *
+     * @param idProducto identificador del producto
+     * @param cantidad cantidad que se debe descontar
+     * @return número de filas actualizadas
+     */
     public int descontarStock(Long idProducto, BigDecimal cantidad) {
         return jdbcTemplate.update(
                 "UPDATE productos SET stock = stock - ? WHERE id_producto = ? AND stock >= ?",

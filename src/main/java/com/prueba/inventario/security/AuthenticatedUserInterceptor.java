@@ -11,6 +11,9 @@ import java.security.MessageDigest;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+/**
+ * Valida sesión, permisos por rol y token CSRF antes de procesar solicitudes.
+ */
 @Component
 public class AuthenticatedUserInterceptor implements HandlerInterceptor {
 
@@ -21,6 +24,15 @@ public class AuthenticatedUserInterceptor implements HandlerInterceptor {
         this.usuarioDAO = usuarioDAO;
     }
 
+    /**
+     * Comprueba que la solicitud pueda continuar hacia el controlador.
+     *
+     * @param request solicitud recibida
+     * @param response respuesta HTTP que puede completarse ante un rechazo
+     * @param handler controlador que atendería la solicitud
+     * @return {@code true} si la solicitud está autenticada y autorizada
+     * @throws IOException si ocurre un error al escribir la respuesta de error
+     */
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws IOException {

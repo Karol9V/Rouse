@@ -12,6 +12,9 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
+/**
+ * Ejecuta consultas y modificaciones JDBC para usuarios y roles.
+ */
 @Repository
 public class UsuarioDAO {
 
@@ -40,22 +43,36 @@ public class UsuarioDAO {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /** @return todos los usuarios ordenados por identificador */
     public List<UsuarioVO> listar() {
         return jdbcTemplate.query(SELECT_COLUMNAS + " ORDER BY id_usuario", rowMapper);
     }
 
+    /**
+     * Busca un usuario por identificador.
+     *
+     * @param idUsuario identificador del usuario
+     * @return usuario si existe
+     */
     public Optional<UsuarioVO> buscarPorId(Long idUsuario) {
         List<UsuarioVO> usuarios = jdbcTemplate.query(
                 SELECT_COLUMNAS + " WHERE id_usuario = ?", rowMapper, idUsuario);
         return usuarios.stream().findFirst();
     }
 
+    /**
+     * Busca un usuario por correo sin distinguir mayúsculas.
+     *
+     * @param correo correo que se desea consultar
+     * @return usuario si existe
+     */
     public Optional<UsuarioVO> buscarPorCorreo(String correo) {
         List<UsuarioVO> usuarios = jdbcTemplate.query(
                 SELECT_COLUMNAS + " WHERE LOWER(correo) = LOWER(?)", rowMapper, correo);
         return usuarios.stream().findFirst();
     }
 
+    /** @return roles no vacíos registrados en el sistema */
     public List<String> listarRoles() {
         return jdbcTemplate.queryForList("""
                 SELECT DISTINCT TRIM(rol)
@@ -65,6 +82,12 @@ public class UsuarioDAO {
                 """, String.class);
     }
 
+    /**
+     * Inserta un usuario y devuelve la clave generada.
+     *
+     * @param usuario datos que se insertarán
+     * @return identificador generado
+     */
     public Long insertar(UsuarioVO usuario) {
         String sql = """
                 INSERT INTO usuarios (nombre, apellido, correo, contrasena_hash, rol, estado)
@@ -84,6 +107,12 @@ public class UsuarioDAO {
         return obtenerIdGenerado(keyHolder, "usuario");
     }
 
+    /**
+     * Actualiza un usuario.
+     *
+     * @param usuario datos actualizados, incluido su identificador
+     * @return número de filas afectadas
+     */
     public int actualizar(UsuarioVO usuario) {
         String sql = """
                 UPDATE usuarios
@@ -100,6 +129,12 @@ public class UsuarioDAO {
                 usuario.getIdUsuario());
     }
 
+    /**
+     * Elimina el usuario indicado.
+     *
+     * @param idUsuario identificador del usuario
+     * @return número de filas eliminadas
+     */
     public int eliminar(Long idUsuario) {
         return jdbcTemplate.update("DELETE FROM usuarios WHERE id_usuario = ?", idUsuario);
     }
