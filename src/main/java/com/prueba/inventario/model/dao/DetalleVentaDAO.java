@@ -11,6 +11,9 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
+/**
+ * Ejecuta consultas y modificaciones JDBC para detalles de venta.
+ */
 @Repository
 public class DetalleVentaDAO {
 
@@ -34,21 +37,40 @@ public class DetalleVentaDAO {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /** @return todos los detalles ordenados por identificador */
     public List<DetalleVentaVO> listar() {
         return jdbcTemplate.query(SELECT_COLUMNAS + " ORDER BY id_detalle", rowMapper);
     }
 
+    /**
+     * Lista los detalles de una venta.
+     *
+     * @param idVenta identificador de la venta
+     * @return detalles asociados
+     */
     public List<DetalleVentaVO> listarPorVenta(Long idVenta) {
         return jdbcTemplate.query(
                 SELECT_COLUMNAS + " WHERE id_venta = ? ORDER BY id_detalle", rowMapper, idVenta);
     }
 
+    /**
+     * Busca un detalle por identificador.
+     *
+     * @param idDetalle identificador del detalle
+     * @return detalle si existe
+     */
     public Optional<DetalleVentaVO> buscarPorId(Long idDetalle) {
         List<DetalleVentaVO> detalles = jdbcTemplate.query(
                 SELECT_COLUMNAS + " WHERE id_detalle = ?", rowMapper, idDetalle);
         return detalles.stream().findFirst();
     }
 
+    /**
+     * Inserta un detalle y devuelve la clave generada.
+     *
+     * @param detalle datos que se insertarán
+     * @return identificador generado
+     */
     public Long insertar(DetalleVentaVO detalle) {
         String sql = """
                 INSERT INTO detalle_venta (id_venta, id_producto, cantidad, precio_unitario)
@@ -66,6 +88,12 @@ public class DetalleVentaDAO {
         return obtenerIdGenerado(keyHolder);
     }
 
+    /**
+     * Actualiza un detalle de venta.
+     *
+     * @param detalle datos actualizados, incluido su identificador
+     * @return número de filas afectadas
+     */
     public int actualizar(DetalleVentaVO detalle) {
         String sql = """
                 UPDATE detalle_venta
@@ -80,10 +108,22 @@ public class DetalleVentaDAO {
                 detalle.getIdDetalle());
     }
 
+    /**
+     * Elimina un detalle.
+     *
+     * @param idDetalle identificador del detalle
+     * @return número de filas eliminadas
+     */
     public int eliminar(Long idDetalle) {
         return jdbcTemplate.update("DELETE FROM detalle_venta WHERE id_detalle = ?", idDetalle);
     }
 
+    /**
+     * Elimina todos los detalles asociados a una venta.
+     *
+     * @param idVenta identificador de la venta
+     * @return número de filas eliminadas
+     */
     public int eliminarPorVenta(Long idVenta) {
         return jdbcTemplate.update("DELETE FROM detalle_venta WHERE id_venta = ?", idVenta);
     }

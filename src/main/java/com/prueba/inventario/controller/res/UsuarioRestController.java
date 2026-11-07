@@ -17,6 +17,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+/**
+ * Expone operaciones REST para usuarios y roles del sistema.
+ */
 @RestController
 @RequestMapping("/api/usuarios")
 public class UsuarioRestController {
@@ -29,16 +32,32 @@ public class UsuarioRestController {
         this.passwordEncoder = passwordEncoder;
     }
 
+    /**
+     * Lista usuarios sin exponer hashes de contraseña.
+     *
+     * @return respuestas públicas de los usuarios
+     */
     @GetMapping
     public List<UsuarioResponse> listar() {
         return usuarioDAO.listar().stream().map(UsuarioResponse::from).toList();
     }
 
+    /**
+     * Lista los roles existentes en el sistema.
+     *
+     * @return nombres de rol disponibles
+     */
     @GetMapping("/roles")
     public List<String> listarRoles() {
         return usuarioDAO.listarRoles();
     }
 
+    /**
+     * Busca un usuario por identificador.
+     *
+     * @param id identificador del usuario
+     * @return usuario o {@code 404 Not Found}
+     */
     @GetMapping("/{id}")
     public ResponseEntity<UsuarioResponse> buscarPorId(@PathVariable Long id) {
         return usuarioDAO.buscarPorId(id)
@@ -47,6 +66,12 @@ public class UsuarioRestController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    /**
+     * Valida y registra un usuario con contraseña codificada.
+     *
+     * @param request datos del usuario nuevo
+     * @return usuario creado o {@code 400 Bad Request}
+     */
     @PostMapping
     public ResponseEntity<UsuarioResponse> insertar(@RequestBody(required = false) UsuarioRequest request) {
         if (request == null || !request.isValidForCreate()
@@ -63,6 +88,13 @@ public class UsuarioRestController {
         return ResponseEntity.created(location).body(response);
     }
 
+    /**
+     * Actualiza un usuario; si la contraseña se omite conserva el hash existente.
+     *
+     * @param id identificador del usuario
+     * @param request datos actualizados
+     * @return {@code 204 No Content}, {@code 404 Not Found} o {@code 400 Bad Request}
+     */
     @PutMapping("/{id}")
     public ResponseEntity<Void> actualizar(@PathVariable Long id, @RequestBody(required = false) UsuarioRequest request) {
         if (request == null || request.nombre() == null || request.nombre().isBlank()
@@ -84,6 +116,12 @@ public class UsuarioRestController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * Elimina un usuario.
+     *
+     * @param id identificador del usuario
+     * @return {@code 204 No Content} o {@code 404 Not Found}
+     */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> eliminar(@PathVariable Long id) {
         return usuarioDAO.eliminar(id) == 0
@@ -91,6 +129,7 @@ public class UsuarioRestController {
                 : ResponseEntity.noContent().build();
     }
 
+    /** Datos de entrada para crear o actualizar un usuario. */
     public record UsuarioRequest(
             String nombre,
             String apellido,
@@ -112,6 +151,7 @@ public class UsuarioRestController {
         }
     }
 
+    /** Campos del usuario que se exponen en la API. */
     public record UsuarioResponse(
             Long idUsuario,
             String nombre,

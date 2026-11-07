@@ -2,6 +2,9 @@ package com.prueba.inventario.model.vo;
 
 import java.math.BigDecimal;
 
+/**
+ * Datos de una línea de venta con producto, cantidad y precio unitario.
+ */
 public class DetalleVentaVO {
 
     private Long idDetalle;

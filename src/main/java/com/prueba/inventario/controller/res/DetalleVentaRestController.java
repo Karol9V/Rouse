@@ -16,6 +16,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+/**
+ * Expone operaciones REST de consulta y mantenimiento de detalles de venta.
+ */
 @RestController
 @RequestMapping("/api/detalles-venta")
 public class DetalleVentaRestController {
@@ -26,11 +29,23 @@ public class DetalleVentaRestController {
         this.detalleVentaDAO = detalleVentaDAO;
     }
 
+    /**
+     * Lista todos los detalles o los pertenecientes a una venta.
+     *
+     * @param ventaId identificador opcional de venta para filtrar resultados
+     * @return detalles de venta
+     */
     @GetMapping
     public List<DetalleVentaVO> listar(@RequestParam(required = false) Long ventaId) {
         return ventaId == null ? detalleVentaDAO.listar() : detalleVentaDAO.listarPorVenta(ventaId);
     }
 
+    /**
+     * Busca un detalle por identificador.
+     *
+     * @param id identificador del detalle
+     * @return el detalle o {@code 404 Not Found}
+     */
     @GetMapping("/{id}")
     public ResponseEntity<DetalleVentaVO> buscarPorId(@PathVariable Long id) {
         return detalleVentaDAO.buscarPorId(id)
@@ -38,6 +53,12 @@ public class DetalleVentaRestController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    /**
+     * Registra un detalle y devuelve su URI.
+     *
+     * @param detalle datos del detalle
+     * @return detalle creado o {@code 400 Bad Request}
+     */
     @PostMapping
     public ResponseEntity<DetalleVentaVO> insertar(@RequestBody(required = false) DetalleVentaVO detalle) {
         if (detalle == null) {
@@ -49,6 +70,13 @@ public class DetalleVentaRestController {
         return ResponseEntity.created(location).body(detalleVentaDAO.buscarPorId(id).orElseThrow());
     }
 
+    /**
+     * Actualiza un detalle de venta existente.
+     *
+     * @param id identificador del detalle
+     * @param detalle datos actualizados
+     * @return {@code 204 No Content}, {@code 404 Not Found} o {@code 400 Bad Request}
+     */
     @PutMapping("/{id}")
     public ResponseEntity<Void> actualizar(@PathVariable Long id, @RequestBody(required = false) DetalleVentaVO detalle) {
         if (detalle == null) {
@@ -60,6 +88,12 @@ public class DetalleVentaRestController {
                 : ResponseEntity.noContent().build();
     }
 
+    /**
+     * Elimina un detalle de venta.
+     *
+     * @param id identificador del detalle
+     * @return {@code 204 No Content} o {@code 404 Not Found}
+     */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> eliminar(@PathVariable Long id) {
         return detalleVentaDAO.eliminar(id) == 0

@@ -15,6 +15,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+/**
+ * Expone operaciones REST de consulta y mantenimiento de proveedores.
+ */
 @RestController
 @RequestMapping("/api/proveedores")
 public class ProveedorRestController {
@@ -25,11 +28,22 @@ public class ProveedorRestController {
         this.proveedorDAO = proveedorDAO;
     }
 
+    /**
+     * Lista los proveedores registrados.
+     *
+     * @return proveedores disponibles
+     */
     @GetMapping
     public List<ProveedorVO> listar() {
         return proveedorDAO.listar();
     }
 
+    /**
+     * Busca un proveedor por identificador.
+     *
+     * @param id identificador del proveedor
+     * @return el proveedor o {@code 404 Not Found}
+     */
     @GetMapping("/{id}")
     public ResponseEntity<ProveedorVO> buscarPorId(@PathVariable Long id) {
         return proveedorDAO.buscarPorId(id)
@@ -37,6 +51,12 @@ public class ProveedorRestController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    /**
+     * Registra un proveedor y devuelve su URI.
+     *
+     * @param proveedor datos del proveedor
+     * @return proveedor creado o {@code 400 Bad Request}
+     */
     @PostMapping
     public ResponseEntity<ProveedorVO> insertar(@RequestBody(required = false) ProveedorVO proveedor) {
         if (proveedor == null) {
@@ -48,6 +68,13 @@ public class ProveedorRestController {
         return ResponseEntity.created(location).body(proveedorDAO.buscarPorId(id).orElseThrow());
     }
 
+    /**
+     * Actualiza un proveedor existente.
+     *
+     * @param id identificador del proveedor
+     * @param proveedor datos actualizados
+     * @return {@code 204 No Content}, {@code 404 Not Found} o {@code 400 Bad Request}
+     */
     @PutMapping("/{id}")
     public ResponseEntity<Void> actualizar(@PathVariable Long id, @RequestBody(required = false) ProveedorVO proveedor) {
         if (proveedor == null) {
@@ -59,6 +86,12 @@ public class ProveedorRestController {
                 : ResponseEntity.noContent().build();
     }
 
+    /**
+     * Elimina un proveedor.
+     *
+     * @param id identificador del proveedor
+     * @return {@code 204 No Content} o {@code 404 Not Found}
+     */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> eliminar(@PathVariable Long id) {
         return proveedorDAO.eliminar(id) == 0

@@ -12,6 +12,9 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
+/**
+ * Ejecuta consultas y modificaciones JDBC para ventas.
+ */
 @Repository
 public class VentaDAO {
 
@@ -44,16 +47,29 @@ public class VentaDAO {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /** @return todas las ventas ordenadas por fecha descendente */
     public List<VentaVO> listar() {
         return jdbcTemplate.query(SELECT_COLUMNAS + " ORDER BY fecha_venta DESC", rowMapper);
     }
 
+    /**
+     * Busca una venta por identificador.
+     *
+     * @param idVenta identificador de la venta
+     * @return venta si existe
+     */
     public Optional<VentaVO> buscarPorId(Long idVenta) {
         List<VentaVO> ventas = jdbcTemplate.query(
                 SELECT_COLUMNAS + " WHERE v.id_venta = ?", rowMapper, idVenta);
         return ventas.stream().findFirst();
     }
 
+    /**
+     * Inserta una venta y devuelve la clave generada.
+     *
+     * @param venta datos que se insertarán
+     * @return identificador generado
+     */
     public Long insertar(VentaVO venta) {
         String sql = """
                 INSERT INTO ventas
@@ -79,6 +95,12 @@ public class VentaDAO {
         return obtenerIdGenerado(keyHolder);
     }
 
+    /**
+     * Actualiza una venta.
+     *
+     * @param venta datos actualizados, incluido su identificador
+     * @return número de filas afectadas
+     */
     public int actualizar(VentaVO venta) {
         String sql = """
                 UPDATE ventas
@@ -95,6 +117,12 @@ public class VentaDAO {
                 venta.getIdVenta());
     }
 
+    /**
+     * Elimina la venta indicada.
+     *
+     * @param idVenta identificador de la venta
+     * @return número de filas eliminadas
+     */
     public int eliminar(Long idVenta) {
         return jdbcTemplate.update("DELETE FROM ventas WHERE id_venta = ?", idVenta);
     }

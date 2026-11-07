@@ -18,6 +18,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Gestiona inicio de sesión, consulta del usuario autenticado y cierre de sesión.
+ */
 @RestController
 @RequestMapping("/api/auth")
 public class AuthRestController {
@@ -32,6 +35,13 @@ public class AuthRestController {
         this.passwordEncoder = passwordEncoder;
     }
 
+    /**
+     * Valida credenciales, rol y estado antes de crear una sesión autenticada.
+     *
+     * @param request correo y contraseña enviados por el cliente
+     * @param httpRequest solicitud HTTP usada para administrar la sesión
+     * @return respuesta de autenticación con token CSRF o error de acceso
+     */
     @PostMapping("/login")
     public ResponseEntity<?> iniciarSesion(
             @RequestBody(required = false) LoginRequest request,
@@ -70,6 +80,12 @@ public class AuthRestController {
         return ResponseEntity.ok(AuthResponse.from(authenticatedUser));
     }
 
+    /**
+     * Devuelve los datos del usuario y el token CSRF de la sesión.
+     *
+     * @param session sesión HTTP autenticada
+     * @return datos del usuario actual
+     */
     @GetMapping("/me")
     public AuthResponse usuarioActual(HttpSession session) {
         AuthenticatedUser user = (AuthenticatedUser) session.getAttribute(
@@ -77,6 +93,12 @@ public class AuthRestController {
         return AuthResponse.from(user);
     }
 
+    /**
+     * Invalida la sesión actual, si existe.
+     *
+     * @param request solicitud HTTP actual
+     * @return {@code 204 No Content}
+     */
     @PostMapping("/logout")
     public ResponseEntity<Void> cerrarSesion(HttpServletRequest request) {
         HttpSession session = request.getSession(false);
@@ -97,9 +119,11 @@ public class AuthRestController {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(token);
     }
 
+    /** Datos de acceso enviados al iniciar sesión. */
     public record LoginRequest(String correo, String contrasena) {
     }
 
+    /** Identidad autenticada y token de protección CSRF devueltos al cliente. */
     public record AuthResponse(
             Long idUsuario,
             String nombre,

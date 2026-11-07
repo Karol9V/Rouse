@@ -26,6 +26,9 @@ import org.springframework.web.bind.annotation.SessionAttribute;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+/**
+ * Expone operaciones REST de ventas y coordina el registro de sus detalles.
+ */
 @RestController
 @RequestMapping("/api/ventas")
 public class VentaRestController {
@@ -40,11 +43,22 @@ public class VentaRestController {
         this.productoDAO = productoDAO;
     }
 
+    /**
+     * Lista las ventas registradas.
+     *
+     * @return ventas disponibles
+     */
     @GetMapping
     public List<VentaVO> listar() {
         return ventaDAO.listar();
     }
 
+    /**
+     * Busca una venta por identificador.
+     *
+     * @param id identificador de la venta
+     * @return venta o {@code 404 Not Found}
+     */
     @GetMapping("/{id}")
     public ResponseEntity<VentaVO> buscarPorId(@PathVariable Long id) {
         return ventaDAO.buscarPorId(id)
@@ -52,6 +66,13 @@ public class VentaRestController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    /**
+     * Valida la venta, descuenta inventario y registra sus detalles.
+     *
+     * @param request datos y líneas de la venta
+     * @param authenticatedUser usuario asociado a la sesión
+     * @return venta creada o error de validación/inventario
+     */
     @PostMapping
     @Transactional
     public ResponseEntity<VentaVO> insertar(
@@ -115,6 +136,13 @@ public class VentaRestController {
         return ResponseEntity.created(location).body(ventaDAO.buscarPorId(id).orElseThrow());
     }
 
+    /**
+     * Actualiza los campos proporcionados y conserva los valores omitidos.
+     *
+     * @param id identificador de la venta
+     * @param venta campos que se desean actualizar
+     * @return {@code 204 No Content}, {@code 404 Not Found} o {@code 400 Bad Request}
+     */
     @PutMapping("/{id}")
     public ResponseEntity<Void> actualizar(@PathVariable Long id, @RequestBody(required = false) VentaVO venta) {
         if (venta == null) {
@@ -148,6 +176,12 @@ public class VentaRestController {
                 : ResponseEntity.noContent().build();
     }
 
+    /**
+     * Elimina una venta.
+     *
+     * @param id identificador de la venta
+     * @return {@code 204 No Content} o {@code 404 Not Found}
+     */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> eliminar(@PathVariable Long id) {
         return ventaDAO.eliminar(id) == 0
@@ -155,6 +189,7 @@ public class VentaRestController {
                 : ResponseEntity.noContent().build();
     }
 
+    /** Datos de cabecera y líneas requeridos para registrar una venta. */
     public record VentaRequest(
             Long idUsuario,
             LocalDateTime fechaVenta,
@@ -166,6 +201,7 @@ public class VentaRestController {
             List<DetalleVentaInput> detalles) {
     }
 
+    /** Producto, cantidad y precio de una línea de venta. */
     public record DetalleVentaInput(
             Long idProducto,
             BigDecimal cantidad,

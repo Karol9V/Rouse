@@ -7,6 +7,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+/**
+ * Configura el codificador de contraseñas y el interceptor de autenticación.
+ */
 @Configuration
 public class WebSecurityConfig implements WebMvcConfigurer {
 
@@ -16,11 +19,21 @@ public class WebSecurityConfig implements WebMvcConfigurer {
         this.authenticatedUserInterceptor = authenticatedUserInterceptor;
     }
 
+    /**
+     * Crea el codificador BCrypt usado para contraseñas.
+     *
+     * @return codificador BCrypt
+     */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
+    /**
+     * Registra el interceptor y excluye las rutas públicas y recursos estáticos.
+     *
+     * @param registry registro de interceptores MVC
+     */
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(authenticatedUserInterceptor)

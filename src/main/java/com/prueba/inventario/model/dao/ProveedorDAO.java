@@ -11,6 +11,9 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
+/**
+ * Ejecuta consultas y modificaciones JDBC para proveedores.
+ */
 @Repository
 public class ProveedorDAO {
 
@@ -35,16 +38,29 @@ public class ProveedorDAO {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /** @return todos los proveedores ordenados por identificador */
     public List<ProveedorVO> listar() {
         return jdbcTemplate.query(SELECT_COLUMNAS + " ORDER BY id_proveedor", rowMapper);
     }
 
+    /**
+     * Busca un proveedor por identificador.
+     *
+     * @param idProveedor identificador del proveedor
+     * @return proveedor si existe
+     */
     public Optional<ProveedorVO> buscarPorId(Long idProveedor) {
         List<ProveedorVO> proveedores = jdbcTemplate.query(
                 SELECT_COLUMNAS + " WHERE id_proveedor = ?", rowMapper, idProveedor);
         return proveedores.stream().findFirst();
     }
 
+    /**
+     * Inserta un proveedor y devuelve la clave generada.
+     *
+     * @param proveedor datos que se insertarán
+     * @return identificador generado
+     */
     public Long insertar(ProveedorVO proveedor) {
         String sql = """
                 INSERT INTO proveedores
@@ -65,6 +81,12 @@ public class ProveedorDAO {
         return obtenerIdGenerado(keyHolder);
     }
 
+    /**
+     * Actualiza un proveedor.
+     *
+     * @param proveedor datos actualizados, incluido su identificador
+     * @return número de filas afectadas
+     */
     public int actualizar(ProveedorVO proveedor) {
         String sql = """
                 UPDATE proveedores
@@ -81,6 +103,12 @@ public class ProveedorDAO {
                 proveedor.getIdProveedor());
     }
 
+    /**
+     * Elimina el proveedor indicado.
+     *
+     * @param idProveedor identificador del proveedor
+     * @return número de filas eliminadas
+     */
     public int eliminar(Long idProveedor) {
         return jdbcTemplate.update("DELETE FROM proveedores WHERE id_proveedor = ?", idProveedor);
     }

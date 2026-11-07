@@ -3,6 +3,9 @@ package com.prueba.inventario.model.vo;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+/**
+ * Datos de una venta, sus importes, estado y vendedor asociado.
+ */
 public class VentaVO {
 
     private Long idVenta;
