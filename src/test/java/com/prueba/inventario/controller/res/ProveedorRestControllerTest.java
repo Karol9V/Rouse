@@ -2,6 +2,7 @@ package com.prueba.inventario.controller.res;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -16,6 +17,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.server.ResponseStatusException;
 
 class ProveedorRestControllerTest {
 
@@ -37,15 +39,18 @@ class ProveedorRestControllerTest {
 
         assertSame(proveedores, controller.listar());
         assertSame(proveedor, controller.buscarPorId(1L).getBody());
-        assertEquals(HttpStatus.NOT_FOUND, controller.buscarPorId(2L).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(
+                ResponseStatusException.class, () -> controller.buscarPorId(2L)).getStatusCode());
     }
 
     @Test
     void insertarValidaYDevuelveCreated() {
-        assertEquals(HttpStatus.BAD_REQUEST, controller.insertar(null).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(
+                ResponseStatusException.class, () -> controller.insertar(null)).getStatusCode());
         verifyNoInteractions(proveedorDAO);
 
-        ProveedorVO proveedor = new ProveedorVO();
+        ProveedorVO proveedor = new ProveedorVO(null, "Empresa", "Contacto", null, "contacto@example.com",
+                null, null);
         when(proveedorDAO.insertar(proveedor)).thenReturn(22L);
         when(proveedorDAO.buscarPorId(22L)).thenReturn(Optional.of(proveedor));
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(
@@ -59,14 +64,25 @@ class ProveedorRestControllerTest {
     }
 
     @Test
+    void insertarExigeEmpresaContactoYCorreoPeroPermiteNulosEnOtrosCampos() {
+        ProveedorVO incompleto = new ProveedorVO(null, "Empresa", null, null, "contacto@example.com", null, null);
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(
+                ResponseStatusException.class, () -> controller.insertar(incompleto)).getStatusCode());
+        verifyNoInteractions(proveedorDAO);
+    }
+
+    @Test
     void actualizarAsignaIdYDevuelveElResultadoDelDao() {
-        ProveedorVO proveedor = new ProveedorVO();
+        ProveedorVO proveedor = new ProveedorVO(null, "Empresa", "Contacto", null, "contacto@example.com",
+                null, null);
         when(proveedorDAO.actualizar(proveedor)).thenReturn(1, 0);
 
         assertEquals(HttpStatus.NO_CONTENT, controller.actualizar(3L, proveedor).getStatusCode());
         assertEquals(3L, proveedor.getIdProveedor());
-        assertEquals(HttpStatus.NOT_FOUND, controller.actualizar(3L, proveedor).getStatusCode());
-        assertEquals(HttpStatus.BAD_REQUEST, controller.actualizar(3L, null).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(
+                ResponseStatusException.class, () -> controller.actualizar(3L, proveedor)).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(
+                ResponseStatusException.class, () -> controller.actualizar(3L, null)).getStatusCode());
     }
 
     @Test
@@ -75,6 +91,7 @@ class ProveedorRestControllerTest {
         when(proveedorDAO.eliminar(2L)).thenReturn(0);
 
         assertEquals(HttpStatus.NO_CONTENT, controller.eliminar(1L).getStatusCode());
-        assertEquals(HttpStatus.NOT_FOUND, controller.eliminar(2L).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(
+                ResponseStatusException.class, () -> controller.eliminar(2L)).getStatusCode());
     }
 }

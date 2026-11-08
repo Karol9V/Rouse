@@ -4,6 +4,7 @@ import com.prueba.inventario.model.dao.ProveedorDAO;
 import com.prueba.inventario.model.vo.ProveedorVO;
 import java.net.URI;
 import java.util.List;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 /**
@@ -48,7 +50,8 @@ public class ProveedorRestController {
     public ResponseEntity<ProveedorVO> buscarPorId(@PathVariable Long id) {
         return proveedorDAO.buscarPorId(id)
                 .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "No se encontró el proveedor " + id + "."));
     }
 
     /**
@@ -59,9 +62,7 @@ public class ProveedorRestController {
      */
     @PostMapping
     public ResponseEntity<ProveedorVO> insertar(@RequestBody(required = false) ProveedorVO proveedor) {
-        if (proveedor == null) {
-            return ResponseEntity.badRequest().build();
-        }
+        validarProveedor(proveedor);
         Long id = proveedorDAO.insertar(proveedor);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}").buildAndExpand(id).toUri();
@@ -77,13 +78,12 @@ public class ProveedorRestController {
      */
     @PutMapping("/{id}")
     public ResponseEntity<Void> actualizar(@PathVariable Long id, @RequestBody(required = false) ProveedorVO proveedor) {
-        if (proveedor == null) {
-            return ResponseEntity.badRequest().build();
-        }
+        validarProveedor(proveedor);
         proveedor.setIdProveedor(id);
-        return proveedorDAO.actualizar(proveedor) == 0
-                ? ResponseEntity.notFound().build()
-                : ResponseEntity.noContent().build();
+        if (proveedorDAO.actualizar(proveedor) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No se encontró el proveedor " + id + ".");
+        }
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -94,8 +94,21 @@ public class ProveedorRestController {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> eliminar(@PathVariable Long id) {
-        return proveedorDAO.eliminar(id) == 0
-                ? ResponseEntity.notFound().build()
-                : ResponseEntity.noContent().build();
+        if (proveedorDAO.eliminar(id) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No se encontró el proveedor " + id + ".");
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    private void validarProveedor(ProveedorVO proveedor) {
+        if (proveedor == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Debes enviar los datos del proveedor.");
+        }
+        if (proveedor.getNombreEmpresa() == null || proveedor.getNombreEmpresa().isBlank()
+                || proveedor.getNombreContacto() == null || proveedor.getNombreContacto().isBlank()
+                || proveedor.getCorreo() == null || proveedor.getCorreo().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Nombre de empresa, nombre de contacto y correo son obligatorios.");
+        }
     }
 }

@@ -241,6 +241,8 @@ Los campos de un producto son `nombre`, `descripcion`, `categoria`,
 
 Los campos editables son `nombreEmpresa`, `nombreContacto`, `telefono`,
 `correo`, `direccion` y `estado`.
+`nombreEmpresa`, `nombreContacto` y `correo` son obligatorios; los demás campos
+pueden omitirse o ser `null`, incluida `direccion`.
 
 ### Usuarios — `/api/usuarios`
 

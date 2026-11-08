@@ -61,6 +61,7 @@ const sections = {
         idField: 'idProveedor',
         route: '/proveedores',
         columns: [
+            {label: 'ID', key: 'idProveedor'},
             {label: 'EMPRESA', key: 'nombreEmpresa'},
             {label: 'CONTACTO', key: 'nombreContacto'},
             {label: 'TELÉFONO', key: 'telefono'},
@@ -69,9 +70,9 @@ const sections = {
         ],
         fields: [
             {key: 'nombreEmpresa', label: 'Nombre de la empresa', required: true},
-            {key: 'nombreContacto', label: 'Nombre del contacto'},
+            {key: 'nombreContacto', label: 'Nombre del contacto', required: true},
             {key: 'telefono', label: 'Teléfono'},
-            {key: 'correo', label: 'Correo', type: 'email'},
+            {key: 'correo', label: 'Correo', type: 'email', required: true},
             {key: 'direccion', label: 'Dirección'},
             {key: 'estado', label: 'Estado', type: 'select', options: ['Activo', 'Inactivo']}
         ]
