@@ -4,6 +4,7 @@ import com.prueba.inventario.model.dao.ProductoDAO;
 import com.prueba.inventario.model.vo.ProductoVO;
 import java.net.URI;
 import java.util.List;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 /**
@@ -48,7 +50,8 @@ public class ProductoRestController {
     public ResponseEntity<ProductoVO> buscarPorId(@PathVariable Long id) {
         return productoDAO.buscarPorId(id)
                 .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "No se encontró el producto " + id + "."));
     }
 
     /**
@@ -60,7 +63,7 @@ public class ProductoRestController {
     @PostMapping
     public ResponseEntity<ProductoVO> insertar(@RequestBody(required = false) ProductoVO producto) {
         if (producto == null) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Debes enviar los datos del producto.");
         }
         Long id = productoDAO.insertar(producto);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
@@ -78,12 +81,13 @@ public class ProductoRestController {
     @PutMapping("/{id}")
     public ResponseEntity<Void> actualizar(@PathVariable Long id, @RequestBody(required = false) ProductoVO producto) {
         if (producto == null) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Debes enviar los datos del producto.");
         }
         producto.setIdProducto(id);
-        return productoDAO.actualizar(producto) == 0
-                ? ResponseEntity.notFound().build()
-                : ResponseEntity.noContent().build();
+        if (productoDAO.actualizar(producto) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No se encontró el producto " + id + ".");
+        }
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -94,8 +98,9 @@ public class ProductoRestController {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> eliminar(@PathVariable Long id) {
-        return productoDAO.eliminar(id) == 0
-                ? ResponseEntity.notFound().build()
-                : ResponseEntity.noContent().build();
+        if (productoDAO.eliminar(id) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No se encontró el producto " + id + ".");
+        }
+        return ResponseEntity.noContent().build();
     }
 }

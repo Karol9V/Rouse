@@ -1,6 +1,7 @@
 package com.prueba.inventario.controller.res;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -19,6 +20,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.server.ResponseStatusException;
 
 class UsuarioRestControllerTest {
 
@@ -43,7 +45,8 @@ class UsuarioRestControllerTest {
         assertEquals("Ana", controller.listar().get(0).nombre());
         assertEquals(List.of("Vendedor"), controller.listarRoles());
         assertEquals("ana@example.com", controller.buscarPorId(4L).getBody().correo());
-        assertEquals(HttpStatus.NOT_FOUND, controller.buscarPorId(5L).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(
+                ResponseStatusException.class, () -> controller.buscarPorId(5L)).getStatusCode());
     }
 
     @Test
@@ -70,11 +73,14 @@ class UsuarioRestControllerTest {
     void insertarRechazaDatosInvalidosYSinRolRegistrado() {
         when(usuarioDAO.listarRoles()).thenReturn(List.of("Vendedor"));
 
-        assertEquals(HttpStatus.BAD_REQUEST, controller.insertar(null).getStatusCode());
-        assertEquals(HttpStatus.BAD_REQUEST, controller.insertar(new UsuarioRestController.UsuarioRequest(
-                "Ana", "Lopez", "ana@example.com", "", "Vendedor", "Activo")).getStatusCode());
-        assertEquals(HttpStatus.BAD_REQUEST, controller.insertar(new UsuarioRestController.UsuarioRequest(
-                "Ana", "Lopez", "ana@example.com", "secreta", "Administrador", "Activo")).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(
+                ResponseStatusException.class, () -> controller.insertar(null)).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(
+                ResponseStatusException.class, () -> controller.insertar(new UsuarioRestController.UsuarioRequest(
+                        "Ana", "Lopez", "ana@example.com", "", "Vendedor", "Activo"))).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(
+                ResponseStatusException.class, () -> controller.insertar(new UsuarioRestController.UsuarioRequest(
+                        "Ana", "Lopez", "ana@example.com", "secreta", "Administrador", "Activo"))).getStatusCode());
         verify(usuarioDAO, never()).insertar(any(UsuarioVO.class));
         verifyNoInteractions(passwordEncoder);
     }
@@ -104,10 +110,12 @@ class UsuarioRestControllerTest {
                 "Ana", "Lopez", "ana@example.com", null, "Vendedor", "Activo");
         when(usuarioDAO.buscarPorId(99L)).thenReturn(Optional.empty());
 
-        assertEquals(HttpStatus.BAD_REQUEST, controller.actualizar(1L,
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(
+                ResponseStatusException.class, () -> controller.actualizar(1L,
                 new UsuarioRestController.UsuarioRequest("Ana", "Lopez", "ana@example.com",
-                        null, "Administrador", "Activo")).getStatusCode());
-        assertEquals(HttpStatus.NOT_FOUND, controller.actualizar(99L, request).getStatusCode());
+                        null, "Administrador", "Activo"))).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(
+                ResponseStatusException.class, () -> controller.actualizar(99L, request)).getStatusCode());
         verify(usuarioDAO, never()).actualizar(any(UsuarioVO.class));
     }
 
@@ -117,6 +125,7 @@ class UsuarioRestControllerTest {
         when(usuarioDAO.eliminar(2L)).thenReturn(0);
 
         assertEquals(HttpStatus.NO_CONTENT, controller.eliminar(1L).getStatusCode());
-        assertEquals(HttpStatus.NOT_FOUND, controller.eliminar(2L).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(
+                ResponseStatusException.class, () -> controller.eliminar(2L)).getStatusCode());
     }
 }

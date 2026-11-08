@@ -63,7 +63,8 @@ public class VentaRestController {
     public ResponseEntity<VentaVO> buscarPorId(@PathVariable Long id) {
         return ventaDAO.buscarPorId(id)
                 .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "No se encontró la venta " + id + "."));
     }
 
     /**
@@ -80,17 +81,20 @@ public class VentaRestController {
             @SessionAttribute(AuthenticatedUser.SESSION_ATTRIBUTE) AuthenticatedUser authenticatedUser) {
         if (request == null || (request.idUsuario() == null
                 && !RolePermissions.isVendor(authenticatedUser.rol()))) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Debes enviar los datos de la venta y el usuario cuando corresponda.");
         }
         List<DetalleVentaInput> detalles = request.detalles() == null ? List.of() : request.detalles();
         if (detalles.isEmpty()) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "La venta debe incluir al menos un producto.");
         }
         BigDecimal descuento = request.descuento() == null ? BigDecimal.ZERO : request.descuento();
         if (detalles.stream().anyMatch(detalle -> detalle == null || detalle.idProducto() == null
                 || detalle.cantidad() == null || detalle.precioUnitario() == null
                 || detalle.cantidad().signum() <= 0 || detalle.precioUnitario().signum() < 0)) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Cada detalle debe tener un producto, una cantidad positiva y un precio válido.");
         }
         BigDecimal subtotal = detalles.stream()
                 .map(detalle -> detalle.cantidad().multiply(detalle.precioUnitario()))
@@ -98,7 +102,8 @@ public class VentaRestController {
         BigDecimal total = subtotal.subtract(descuento);
         if (descuento.signum() < 0 || total.signum() < 0
                 || request.metodoPago() == null || request.metodoPago().isBlank()) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "El descuento y el método de pago no son válidos.");
         }
         for (DetalleVentaInput detalle : detalles) {
             if (productoDAO.descontarStock(detalle.idProducto(), detalle.cantidad()) == 0) {
@@ -146,11 +151,11 @@ public class VentaRestController {
     @PutMapping("/{id}")
     public ResponseEntity<Void> actualizar(@PathVariable Long id, @RequestBody(required = false) VentaVO venta) {
         if (venta == null) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Debes enviar los datos de la venta.");
         }
         VentaVO ventaActual = ventaDAO.buscarPorId(id).orElse(null);
         if (ventaActual == null) {
-            return ResponseEntity.notFound().build();
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No se encontró la venta " + id + ".");
         }
         venta.setIdVenta(id);
         if (venta.getIdUsuario() == null) {
@@ -171,9 +176,10 @@ public class VentaRestController {
         if (venta.getEstado() == null) {
             venta.setEstado(ventaActual.getEstado());
         }
-        return ventaDAO.actualizar(venta) == 0
-                ? ResponseEntity.notFound().build()
-                : ResponseEntity.noContent().build();
+        if (ventaDAO.actualizar(venta) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No se encontró la venta " + id + ".");
+        }
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -184,9 +190,10 @@ public class VentaRestController {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> eliminar(@PathVariable Long id) {
-        return ventaDAO.eliminar(id) == 0
-                ? ResponseEntity.notFound().build()
-                : ResponseEntity.noContent().build();
+        if (ventaDAO.eliminar(id) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No se encontró la venta " + id + ".");
+        }
+        return ResponseEntity.noContent().build();
     }
 
     /** Datos de cabecera y líneas requeridos para registrar una venta. */

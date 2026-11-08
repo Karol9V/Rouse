@@ -50,7 +50,8 @@ class VentaRestControllerTest {
 
         assertSame(ventas, controller.listar());
         assertSame(venta, controller.buscarPorId(1L).getBody());
-        assertEquals(HttpStatus.NOT_FOUND, controller.buscarPorId(2L).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND,
+                assertThrows(ResponseStatusException.class, () -> controller.buscarPorId(2L)).getStatusCode());
     }
 
     @Test
@@ -85,9 +86,12 @@ class VentaRestControllerTest {
                 " ", null, List.of(new VentaRestController.DetalleVentaInput(
                         3L, BigDecimal.ONE, BigDecimal.ONE)));
 
-        assertEquals(HttpStatus.BAD_REQUEST, controller.insertar(null, vendedor).getStatusCode());
-        assertEquals(HttpStatus.BAD_REQUEST, controller.insertar(emptyDetails, vendedor).getStatusCode());
-        assertEquals(HttpStatus.BAD_REQUEST, controller.insertar(noPayment, vendedor).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
+                () -> controller.insertar(null, vendedor)).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
+                () -> controller.insertar(emptyDetails, vendedor)).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
+                () -> controller.insertar(noPayment, vendedor)).getStatusCode());
         verifyNoInteractions(ventaDAO, detalleDAO, productoDAO);
     }
 
@@ -115,7 +119,8 @@ class VentaRestControllerTest {
                 new AuthenticatedUser(1L, "Luis", "Perez", "luis@example.com", "Administrador", "token");
         var request = request(null, List.of(new VentaRestController.DetalleVentaInput(
                 3L, BigDecimal.ONE, BigDecimal.ONE)));
-        assertEquals(HttpStatus.BAD_REQUEST, controller.insertar(request, admin).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
+                () -> controller.insertar(request, admin)).getStatusCode());
 
         VentaVO actual = new VentaVO(8L, 7L, null, new BigDecimal("10"),
                 BigDecimal.ZERO, new BigDecimal("10"), "Efectivo", "Completada");
@@ -127,10 +132,12 @@ class VentaRestControllerTest {
         assertEquals(8L, cambios.getIdVenta());
         assertEquals(7L, cambios.getIdUsuario());
         assertEquals("Efectivo", cambios.getMetodoPago());
-        assertEquals(HttpStatus.BAD_REQUEST, controller.actualizar(8L, null).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
+                () -> controller.actualizar(8L, null)).getStatusCode());
 
         when(ventaDAO.buscarPorId(9L)).thenReturn(Optional.empty());
-        assertEquals(HttpStatus.NOT_FOUND, controller.actualizar(9L, new VentaVO()).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ResponseStatusException.class,
+                () -> controller.actualizar(9L, new VentaVO())).getStatusCode());
     }
 
     @Test
@@ -139,7 +146,8 @@ class VentaRestControllerTest {
         when(ventaDAO.eliminar(2L)).thenReturn(0);
 
         assertEquals(HttpStatus.NO_CONTENT, controller.eliminar(1L).getStatusCode());
-        assertEquals(HttpStatus.NOT_FOUND, controller.eliminar(2L).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND,
+                assertThrows(ResponseStatusException.class, () -> controller.eliminar(2L)).getStatusCode());
     }
 
     private VentaRestController.VentaRequest request(

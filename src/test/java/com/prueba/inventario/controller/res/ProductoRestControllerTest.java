@@ -2,6 +2,7 @@ package com.prueba.inventario.controller.res;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -16,6 +17,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.server.ResponseStatusException;
 
 class ProductoRestControllerTest {
 
@@ -42,12 +44,14 @@ class ProductoRestControllerTest {
         when(productoDAO.buscarPorId(2L)).thenReturn(Optional.empty());
 
         assertSame(producto, controller.buscarPorId(1L).getBody());
-        assertEquals(HttpStatus.NOT_FOUND, controller.buscarPorId(2L).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND,
+                assertThrows(ResponseStatusException.class, () -> controller.buscarPorId(2L)).getStatusCode());
     }
 
     @Test
     void insertarDevuelveBadRequestCuandoElProductoEsNulo() {
-        assertEquals(HttpStatus.BAD_REQUEST, controller.insertar(null).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(
+                ResponseStatusException.class, () -> controller.insertar(null)).getStatusCode());
         verifyNoInteractions(productoDAO);
     }
 
@@ -72,12 +76,14 @@ class ProductoRestControllerTest {
 
         assertEquals(HttpStatus.NO_CONTENT, controller.actualizar(8L, producto).getStatusCode());
         assertEquals(8L, producto.getIdProducto());
-        assertEquals(HttpStatus.NOT_FOUND, controller.actualizar(8L, producto).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(
+                ResponseStatusException.class, () -> controller.actualizar(8L, producto)).getStatusCode());
     }
 
     @Test
     void actualizarRechazaCuerpoNulo() {
-        assertEquals(HttpStatus.BAD_REQUEST, controller.actualizar(8L, null).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(
+                ResponseStatusException.class, () -> controller.actualizar(8L, null)).getStatusCode());
         verifyNoInteractions(productoDAO);
     }
 
@@ -87,7 +93,8 @@ class ProductoRestControllerTest {
         when(productoDAO.eliminar(2L)).thenReturn(0);
 
         assertEquals(HttpStatus.NO_CONTENT, controller.eliminar(1L).getStatusCode());
-        assertEquals(HttpStatus.NOT_FOUND, controller.eliminar(2L).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(
+                ResponseStatusException.class, () -> controller.eliminar(2L)).getStatusCode());
     }
 
     private void bindRequest(String method, String path) {

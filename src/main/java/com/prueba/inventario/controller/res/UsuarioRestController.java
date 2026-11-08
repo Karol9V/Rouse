@@ -5,6 +5,7 @@ import com.prueba.inventario.model.vo.UsuarioVO;
 import java.time.LocalDateTime;
 import java.net.URI;
 import java.util.List;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Expone operaciones REST para usuarios y roles del sistema.
@@ -63,7 +65,8 @@ public class UsuarioRestController {
         return usuarioDAO.buscarPorId(id)
                 .map(UsuarioResponse::from)
                 .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "No se encontró el usuario " + id + "."));
     }
 
     /**
@@ -76,7 +79,8 @@ public class UsuarioRestController {
     public ResponseEntity<UsuarioResponse> insertar(@RequestBody(required = false) UsuarioRequest request) {
         if (request == null || !request.isValidForCreate()
                 || !usuarioDAO.listarRoles().contains(request.rol().trim())) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Completa nombre, apellido, correo, contraseña y un rol válido.");
         }
         UsuarioVO usuario = request.toUsuario(passwordEncoder.encode(request.contrasena()));
         Long id = usuarioDAO.insertar(usuario);
@@ -101,11 +105,12 @@ public class UsuarioRestController {
                 || request.apellido() == null || request.apellido().isBlank()
                 || request.correo() == null || request.correo().isBlank()
                 || request.rol() == null || !usuarioDAO.listarRoles().contains(request.rol().trim())) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Completa nombre, apellido, correo y un rol válido.");
         }
         UsuarioVO usuarioActual = usuarioDAO.buscarPorId(id).orElse(null);
         if (usuarioActual == null) {
-            return ResponseEntity.notFound().build();
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No se encontró el usuario " + id + ".");
         }
         UsuarioVO usuario = request.toUsuario(
                 request.contrasena() == null || request.contrasena().isBlank()
@@ -124,9 +129,10 @@ public class UsuarioRestController {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> eliminar(@PathVariable Long id) {
-        return usuarioDAO.eliminar(id) == 0
-                ? ResponseEntity.notFound().build()
-                : ResponseEntity.noContent().build();
+        if (usuarioDAO.eliminar(id) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No se encontró el usuario " + id + ".");
+        }
+        return ResponseEntity.noContent().build();
     }
 
     /** Datos de entrada para crear o actualizar un usuario. */
