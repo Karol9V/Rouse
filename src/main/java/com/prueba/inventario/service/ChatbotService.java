@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prueba.inventario.model.dao.DetalleVentaDAO;
 import com.prueba.inventario.model.dao.ProductoDAO;
 import com.prueba.inventario.model.dao.ProveedorDAO;
+import com.prueba.inventario.model.dao.UsuarioDAO;
 import com.prueba.inventario.model.dao.VentaDAO;
 import com.prueba.inventario.model.vo.ChatMessageVO;
 import com.prueba.inventario.model.vo.DetalleVentaVO;
@@ -19,11 +20,16 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
@@ -35,6 +41,8 @@ import org.springframework.stereotype.Service;
 public class ChatbotService {
 
     private static final int MAX_MENSAJE_LENGTH = 1000;
+    private static final Pattern STOCK_EXACTO_PATTERN = Pattern.compile(
+            "(?:\\btiene\\s+|\\bcon\\s+|\\bstock(?:\\s+(?:de|es|en))?\\s*)(\\d+(?:[.,]\\d+)?)");
     private final Map<String, ConversationMemory> memories = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -42,6 +50,7 @@ public class ChatbotService {
     private final VentaDAO ventaDAO;
     private final DetalleVentaDAO detalleVentaDAO;
     private final ProveedorDAO proveedorDAO;
+    private final UsuarioDAO usuarioDAO;
     private final GeminiService geminiService;
 
     public ChatbotService(
@@ -49,11 +58,13 @@ public class ChatbotService {
             VentaDAO ventaDAO,
             DetalleVentaDAO detalleVentaDAO,
             ProveedorDAO proveedorDAO,
+            UsuarioDAO usuarioDAO,
             GeminiService geminiService) {
         this.productoDAO = productoDAO;
         this.ventaDAO = ventaDAO;
         this.detalleVentaDAO = detalleVentaDAO;
         this.proveedorDAO = proveedorDAO;
+        this.usuarioDAO = usuarioDAO;
         this.geminiService = geminiService;
     }
 
@@ -64,20 +75,22 @@ public class ChatbotService {
     public String responder(String mensaje, HttpSession session) {
         String key = session == null ? "default" : "session:" + session.getId();
         ConversationMemory memory = memories.computeIfAbsent(key, ignored -> new ConversationMemory());
-        return responder(mensaje, memory, List.of());
+        return responder(mensaje, memory, List.of(), new QueryData());
     }
 
     public String responder(
             String mensaje,
             List<ChatMessageVO> historial) {
-        ConversationMemory memory = reconstruirMemoria(historial);
-        return responder(mensaje, memory, historial);
+        QueryData data = new QueryData();
+        ConversationMemory memory = reconstruirMemoria(historial, data);
+        return responder(mensaje, memory, historial, data);
     }
 
     private String responder(
             String mensaje,
             ConversationMemory memory,
-            List<ChatMessageVO> historial) {
+            List<ChatMessageVO> historial,
+            QueryData data) {
         String texto = normalizarMensaje(mensaje);
         if (texto.isBlank()) {
             throw new IllegalArgumentException("Debes escribir una pregunta antes de enviar el mensaje.");
@@ -86,19 +99,46 @@ public class ChatbotService {
             throw new IllegalArgumentException("El mensaje es demasiado largo. Usa máximo 1000 caracteres.");
         }
 
-        QueryContext queryContext = inferirConsulta(texto, memory);
+        String respuestaConversacional = respuestaConversacional(texto);
+        if (respuestaConversacional != null) {
+            return respuestaConversacional;
+        }
+
+        QueryContext queryContext = inferirConsulta(texto, memory, data);
+        if (esConsultaDeterminista(queryContext)) {
+            String respuesta = respuestaLocal(queryContext, memory);
+            actualizarMemoria(memory, queryContext);
+            return respuesta;
+        }
         String prompt = construirPrompt(texto, queryContext);
-        String respuestaGemini = geminiService.generateResponse(prompt);
+        String respuestaGemini = geminiService.generateResponse(prompt, historial);
         if (respuestaGemini != null && !respuestaGemini.isBlank()) {
-            memory.setUltimoProducto(productoPrincipal(queryContext));
-            memory.setUltimosProductos(productosParaMemoria(queryContext));
+            actualizarMemoria(memory, queryContext);
             return respuestaGemini.trim();
         }
 
         String respuestaLocal = respuestaLocal(queryContext, memory);
-        memory.setUltimoProducto(productoPrincipal(queryContext));
-        memory.setUltimosProductos(productosParaMemoria(queryContext));
+        actualizarMemoria(memory, queryContext);
         return respuestaLocal;
+    }
+
+    private void actualizarMemoria(ConversationMemory memory, QueryContext context) {
+        memory.setUltimoProducto(productoPrincipal(context));
+        memory.setUltimosProductos(productosParaMemoria(context));
+        actualizarDimensionComparacion(memory, context);
+    }
+
+    private void actualizarDimensionComparacion(ConversationMemory memory, QueryContext context) {
+        switch (context.tipoConsulta == null ? "" : context.tipoConsulta) {
+            case "COMPARAR_STOCK", "CONSULTA_STOCK", "BUSCAR_PRODUCTOS_POR_STOCK",
+                    "LISTAR_PRODUCTOS_STOCK_BAJO", "LISTAR_PRODUCTOS_AGOTADOS" ->
+                memory.setDimensionComparacion(ComparisonDimension.STOCK);
+            case "COMPARAR_PRODUCTOS", "CONSULTA_PRECIO" ->
+                memory.setDimensionComparacion(ComparisonDimension.PRECIO);
+            case "SOLICITAR_ACLARACION" -> {
+            }
+            default -> memory.setDimensionComparacion(null);
+        }
     }
 
     private List<ProductoVO> productosParaMemoria(QueryContext context) {
@@ -106,22 +146,26 @@ public class ChatbotService {
                 ? context.productos : context.productosParaMemoria;
     }
 
-    private ConversationMemory reconstruirMemoria(List<ChatMessageVO> historial) {
+    private ConversationMemory reconstruirMemoria(List<ChatMessageVO> historial, QueryData data) {
         ConversationMemory memory = new ConversationMemory();
         if (historial == null || historial.isEmpty()) {
             return memory;
         }
-        List<ProductoVO> productos = productoDAO.listar();
         for (ChatMessageVO message : historial) {
             if ("USUARIO".equals(message.emisor())) {
-                QueryContext previous = inferirConsulta(message.contenido(), memory);
+                if (respuestaConversacional(message.contenido()) != null) {
+                    continue;
+                }
+                QueryContext previous = inferirConsulta(message.contenido(), memory, data);
+                actualizarDimensionComparacion(memory, previous);
                 if (!previous.productos.isEmpty()) {
                     memory.setUltimosProductos(productosParaMemoria(previous));
                     memory.setUltimoProducto(productoPrincipal(previous));
                 }
-            } else if ("ASISTENTE".equals(message.emisor())) {
+            } else if ("ASISTENTE".equals(message.emisor())
+                    && !memory.getUltimosProductos().isEmpty()) {
                 List<ProductoVO> mentioned = productosMencionados(
-                        normalizarBusqueda(message.contenido()), productos);
+                        normalizarBusqueda(message.contenido()), memory.getUltimosProductos());
                 if (mentioned.size() == 1) {
                     memory.setUltimoProducto(mentioned.get(0));
                 }
@@ -149,41 +193,61 @@ public class ChatbotService {
             payload.put("pregunta", mensaje);
             payload.put("registros", context.registros);
             payload.put("referenciaAnterior", context.productoReferencia == null ? null : context.productoReferencia.getNombre());
-
-            String json = objectMapper.writeValueAsString(payload);
-            return "Eres un asistente administrativo amable, natural y profesional de una pastelería. "
-                    + "Responde en español claro y cercano, con variación natural y sin repetir un saludo en cada turno. "
-                    + "Los registros del contexto son la única fuente de datos administrativos; no inventes ni calcules "
-                    + "cantidades de ventas a partir del dinero ni dinero a partir del número de ventas. "
-                    + "Distingue explícitamente cantidad de transacciones, ingresos monetarios y unidades vendidas. "
-                    + "El contexto conversacional relevante ya fue resuelto por el backend; no inventes referencias. "
-                    + "Si hay más de una interpretación "
-                    + "posible, pide una aclaración. No generes ni ejecutes SQL y no sugieras cambios de datos. "
-                    + "Ajusta el formato a la pregunta: listados en viñetas, comparaciones explicando el criterio y "
-                    + "ventas con identificador, fecha y valor cuando estén disponibles. "
-                    + "Contexto JSON: " + json;
+            return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException("No se pudo preparar el contexto seguro para Gemini.", ex);
         }
     }
 
-    private QueryContext inferirConsulta(String texto, ConversationMemory memory) {
+    private QueryContext inferirConsulta(
+            String texto,
+            ConversationMemory memory,
+            QueryData data) {
         String textoLower = normalizarBusqueda(texto);
-        List<ProductoVO> productos = productoDAO.listar();
-        List<ProveedorVO> proveedores = proveedorDAO.listar();
-        List<VentaVO> ventas = ventaDAO.listar();
-        List<DetalleVentaVO> detalles = detalleVentaDAO.listar();
         QueryContext context = new QueryContext();
         context.pregunta = textoLower;
+        if (textoLower.contains("vendedor") && !esConsultaVentas(textoLower)) {
+            if (esConsultaConteo(textoLower)) {
+                context.tipoConsulta = "CONTAR_VENDEDORES";
+                context.registros = List.of(Map.of(
+                        "cantidadVendedores", usuarioDAO.contarVendedores()));
+            } else {
+                context.tipoConsulta = "LISTAR_VENDEDORES";
+                context.registros = usuarioDAO.listarVendedores().stream()
+                        .map(nombre -> Map.<String, Object>of("nombre", nombre))
+                        .collect(Collectors.toList());
+            }
+            context.totalResultados = context.registros.size();
+            return context;
+        }
+        List<ProductoVO> productos = data.productos();
 
         ProductoVO productoReferencia = resolverProductoReferencia(textoLower, memory, productos);
         context.productoReferencia = productoReferencia;
         List<ProductoVO> coincidenciasProducto = productosMencionados(textoLower, productos);
         List<ProductoVO> productosMencionados = coincidenciasProducto.isEmpty() && productoReferencia != null
                 ? List.of(productoReferencia) : coincidenciasProducto;
-        List<ProductoVO> productosFiltrados = filtrarPorCategoria(textoLower, productos);
+        CategoryFilter categoryFilter = filtroCategoria(textoLower, productos);
+        List<ProductoVO> productosFiltrados = filtrarPorCategoria(categoryFilter, productos);
         if (!productosMencionados.isEmpty()) {
             productosFiltrados = productosMencionados;
+        } else if (productoReferencia != null && esReferenciaConversacional(textoLower)) {
+            productosFiltrados = List.of(productoReferencia);
+        }
+        boolean comparacionContextual = esComparacionContextual(textoLower)
+                && memory.getDimensionComparacion() != null;
+
+        if (!memory.getUltimosProductos().isEmpty()
+                && (textoLower.startsWith("cuales son") || textoLower.startsWith("y cuales son"))
+                && !esConsultaVentas(textoLower)) {
+            List<ProductoVO> productosRecordados = memory.getUltimosProductos();
+            context.tipoConsulta = "LISTAR_PRODUCTOS";
+            context.productos = productosRecordados;
+            context.registros = productosRecordados.stream()
+                    .map(this::toProductoMap)
+                    .collect(Collectors.toList());
+            context.totalResultados = context.registros.size();
+            return context;
         }
 
         if (textoLower.contains("otro") && !memory.getUltimosProductos().isEmpty()) {
@@ -200,31 +264,58 @@ public class ChatbotService {
             }
         }
 
-        if (esReferenciaConversacional(textoLower) && productoReferencia == null) {
+        if (esReferenciaConversacional(textoLower) && productoReferencia == null
+                && !comparacionContextual) {
             context.tipoConsulta = "SOLICITAR_ACLARACION";
             return context;
         }
 
         if (esConsultaVentas(textoLower)) {
+            List<VentaVO> ventas = data.ventas();
             List<VentaVO> ventasPeriodo = ventas.stream()
                     .filter(this::esVentaValida)
                     .filter(venta -> dentroDelPeriodo(venta.getFechaVenta() == null
                             ? null : venta.getFechaVenta().toLocalDate(), textoLower))
                     .toList();
             List<Long> idsVenta = ventasPeriodo.stream().map(VentaVO::getIdVenta).toList();
-            List<DetalleVentaVO> detallesPeriodo = detalles.stream()
-                    .filter(detalle -> idsVenta.contains(detalle.getIdVenta()))
-                    .toList();
-            boolean consultaProductosVendidos = textoLower.contains("producto")
+            Optional<List<ProductoVO>> seleccionProductos = seleccionProductosVenta(
+                    coincidenciasProducto, categoryFilter, productosFiltrados,
+                    productoReferencia, textoLower);
+            boolean consultaProductosVendidos = esConsultaProducto(textoLower)
                     && (textoLower.contains("vend") || textoLower.contains("se vendio"));
-            if (textoLower.contains("mas vendido") || textoLower.contains("mas se vende")) {
+            boolean consultaProductosMasVendidos = textoLower.contains("mas vendido")
+                    || textoLower.contains("mas se vende");
+            boolean consultaUnidades = textoLower.contains("unidad")
+                    && (textoLower.contains("cuanto") || textoLower.contains("cuantas")
+                    || textoLower.contains("cantidad"));
+            List<DetalleVentaVO> detallesPeriodo = List.of();
+            if (seleccionProductos.isPresent() || consultaProductosVendidos
+                    || consultaProductosMasVendidos || consultaUnidades) {
+                detallesPeriodo = data.detalles().stream()
+                        .filter(detalle -> idsVenta.contains(detalle.getIdVenta()))
+                        .toList();
+            }
+            if (seleccionProductos.isPresent()) {
+                Set<Long> idsProducto = seleccionProductos.get().stream()
+                        .map(ProductoVO::getIdProducto)
+                        .collect(Collectors.toSet());
+                detallesPeriodo = detallesPeriodo.stream()
+                        .filter(detalle -> idsProducto.contains(detalle.getIdProducto()))
+                        .toList();
+                Set<Long> ventasConProducto = detallesPeriodo.stream()
+                        .map(DetalleVentaVO::getIdVenta)
+                        .collect(Collectors.toSet());
+                ventasPeriodo = ventasPeriodo.stream()
+                        .filter(venta -> ventasConProducto.contains(venta.getIdVenta()))
+                        .toList();
+            }
+            if (consultaProductosMasVendidos) {
                 context.tipoConsulta = "PRODUCTOS_MAS_VENDIDOS";
                 context.registros = productosVendidos(detallesPeriodo, productos, 5);
             } else if (consultaProductosVendidos) {
                 context.tipoConsulta = "CONSULTAR_PRODUCTOS_VENDIDOS";
                 context.registros = productosVendidos(detallesPeriodo, productos, Integer.MAX_VALUE);
-            } else if (textoLower.contains("unidad") && (textoLower.contains("cuanto")
-                    || textoLower.contains("cuantas") || textoLower.contains("cantidad"))) {
+            } else if (consultaUnidades) {
                 BigDecimal unidades = detallesPeriodo.stream()
                         .filter(detalle -> productosMencionados.isEmpty()
                                 || productosMencionados.stream().anyMatch(producto ->
@@ -235,22 +326,23 @@ public class ChatbotService {
                 context.tipoConsulta = "CONTAR_UNIDADES_VENDIDAS";
                 context.registros = List.of(Map.of("unidadesVendidas", unidades));
             } else if (textoLower.contains("promedio")) {
-                BigDecimal ingresos = sumarVentas(ventasPeriodo);
+                BigDecimal ingresos = seleccionProductos.isPresent()
+                        ? sumarDetalles(detallesPeriodo) : sumarVentas(ventasPeriodo);
                 BigDecimal promedio = ventasPeriodo.isEmpty() ? BigDecimal.ZERO
                         : ingresos.divide(BigDecimal.valueOf(ventasPeriodo.size()), 2, RoundingMode.HALF_UP);
                 context.tipoConsulta = "CONSULTAR_PROMEDIO_VENTAS";
                 context.registros = List.of(Map.of(
                         "promedioVenta", promedio,
                         "cantidadVentas", ventasPeriodo.size()));
-            } else if (esConsultaConteo(textoLower)) {
+            } else if (esConsultaConteoVentas(textoLower)) {
                 context.tipoConsulta = "CONTAR_VENTAS";
                 context.registros = List.of(Map.of("cantidadVentas", ventasPeriodo.size()));
-            } else if (textoLower.contains("dinero") || textoLower.contains("ingreso")
-                    || textoLower.contains("recaud") || textoLower.contains("obtuvo")
-                    || textoLower.contains("total")) {
+            } else if (esConsultaMontoVentas(textoLower)) {
                 context.tipoConsulta = "CONSULTAR_TOTAL_VENTAS";
+                BigDecimal ingresos = seleccionProductos.isPresent()
+                        ? sumarDetalles(detallesPeriodo) : sumarVentas(ventasPeriodo);
                 context.registros = List.of(Map.of(
-                        "ingresosTotales", sumarVentas(ventasPeriodo),
+                        "ingresosTotales", ingresos,
                         "cantidadVentas", ventasPeriodo.size()));
             } else {
                 context.tipoConsulta = "LISTAR_VENTAS";
@@ -263,6 +355,7 @@ public class ChatbotService {
         boolean consultaProveedor = textoLower.contains("proveedor") || textoLower.contains("suministra")
                 || textoLower.contains("suministrador");
         if (consultaProveedor) {
+            List<ProveedorVO> proveedores = data.proveedores();
             List<ProveedorVO> proveedorMencionado = proveedores.stream()
                     .filter(proveedor -> proveedor.getNombreEmpresa() != null
                             && textoLower.contains(normalizarBusqueda(proveedor.getNombreEmpresa())))
@@ -298,11 +391,19 @@ public class ChatbotService {
             return context;
         }
 
-        boolean esComparacionPrecio = textoLower.contains("mas caro") || textoLower.contains("mas costoso")
-                || textoLower.contains("mas economico") || textoLower.contains("mas barato")
-                || textoLower.contains("menor precio") || textoLower.contains("mayor precio");
+        boolean esComparacionPrecio = esComparacionPrecio(textoLower)
+                || (comparacionContextual
+                && memory.getDimensionComparacion() == ComparisonDimension.PRECIO
+                && !esComparacionStock(textoLower));
         if (!esComparacionPrecio && (textoLower.contains("precio")
                 || textoLower.contains("cuesta") || textoLower.contains("vale"))) {
+            if (coincidenciasProducto.isEmpty() && !categoryFilter.tieneFiltros()
+                    && productoReferencia == null
+                    && !textoLower.contains("productos") && !textoLower.contains("precios")
+                    && !textoLower.contains("todos") && !textoLower.contains("lista")) {
+                context.tipoConsulta = "SOLICITAR_ACLARACION";
+                return context;
+            }
             context.tipoConsulta = "CONSULTA_PRECIO";
             context.productos = productosFiltrados;
             context.registros = productosFiltrados.stream().map(producto -> {
@@ -318,27 +419,64 @@ public class ChatbotService {
         }
 
         if (esComparacionPrecio) {
-            boolean maximo = textoLower.contains("mas caro") || textoLower.contains("mas costoso")
-                    || textoLower.contains("mayor precio");
-            List<ProductoVO> candidatos = productosMencionados.isEmpty()
-                    ? memory.getUltimosProductos() : productosMencionados;
+            boolean maximo = esPrecioMaximo(textoLower)
+                    || (comparacionContextual
+                    && memory.getDimensionComparacion() == ComparisonDimension.PRECIO
+                    && esComparacionMaximoContextual(textoLower));
+            List<ProductoVO> candidatos = candidatosComparacion(
+                    coincidenciasProducto, productosFiltrados, memory, textoLower);
             if (candidatos.isEmpty()) {
                 context.tipoConsulta = "SOLICITAR_ACLARACION";
                 return context;
             }
-            ProductoVO elegido = candidatos.stream()
+            BigDecimal precioElegido = candidatos.stream()
                     .filter(producto -> producto.getPrecioVenta() != null)
-                    .max(maximo
-                            ? Comparator.comparing(ProductoVO::getPrecioVenta)
-                            : Comparator.comparing(ProductoVO::getPrecioVenta).reversed())
+                    .map(ProductoVO::getPrecioVenta)
+                    .reduce(maximo ? BigDecimal::max : BigDecimal::min)
                     .orElse(null);
             context.tipoConsulta = "COMPARAR_PRODUCTOS";
-            if (elegido != null) {
-                context.productoReferencia = elegido;
-                context.productos = List.of(elegido);
+            if (precioElegido != null) {
+                List<ProductoVO> elegidos = candidatos.stream()
+                        .filter(producto -> producto.getPrecioVenta() != null
+                                && producto.getPrecioVenta().compareTo(precioElegido) == 0)
+                        .toList();
+                context.productoReferencia = elegidos.get(0);
+                context.productos = elegidos;
                 context.productosParaMemoria = candidatos;
-                context.registros = List.of(toProductoMap(elegido));
+                context.registros = elegidos.stream()
+                        .map(this::toProductoMap)
+                        .collect(Collectors.toList());
                 context.compararMaximo = maximo;
+            }
+            context.totalResultados = context.registros.size();
+            return context;
+        }
+
+        if (esComparacionStock(textoLower)
+                || (comparacionContextual
+                && memory.getDimensionComparacion() == ComparisonDimension.STOCK)) {
+            boolean maximo = esStockMaximo(textoLower)
+                    || (comparacionContextual && esComparacionMaximoContextual(textoLower));
+            List<ProductoVO> candidatos = candidatosComparacion(
+                    coincidenciasProducto, productosFiltrados, memory, textoLower);
+            BigDecimal stockElegido = candidatos.stream()
+                    .map(ProductoVO::getStock)
+                    .filter(Objects::nonNull)
+                    .reduce(maximo ? BigDecimal::max : BigDecimal::min)
+                    .orElse(null);
+            context.tipoConsulta = "COMPARAR_STOCK";
+            if (stockElegido != null) {
+                List<ProductoVO> elegidos = candidatos.stream()
+                        .filter(producto -> producto.getStock() != null
+                                && producto.getStock().compareTo(stockElegido) == 0)
+                        .toList();
+                context.productoReferencia = elegidos.get(0);
+                context.productos = elegidos;
+                context.productosParaMemoria = candidatos;
+                context.registros = elegidos.stream()
+                        .map(this::toProductoMap)
+                        .collect(Collectors.toList());
+                context.compararStockMaximo = maximo;
             }
             context.totalResultados = context.registros.size();
             return context;
@@ -378,7 +516,23 @@ public class ChatbotService {
             return context;
         }
 
-        if (textoLower.contains("stock") || textoLower.contains("existencia") || textoLower.contains("queda")) {
+        if (textoLower.contains("stock") || textoLower.contains("existencia")
+                || textoLower.contains("queda") || textoLower.contains("quedan")) {
+            BigDecimal stockSolicitado = extraerStockSolicitado(textoLower);
+            if (stockSolicitado != null) {
+                List<ProductoVO> coincidencias = productosFiltrados.stream()
+                        .filter(producto -> producto.getStock() != null
+                                && producto.getStock().compareTo(stockSolicitado) == 0)
+                        .toList();
+                context.tipoConsulta = "BUSCAR_PRODUCTOS_POR_STOCK";
+                context.stockSolicitado = stockSolicitado;
+                context.productos = coincidencias;
+                context.registros = coincidencias.stream()
+                        .map(this::toProductoMap)
+                        .collect(Collectors.toList());
+                context.totalResultados = context.registros.size();
+                return context;
+            }
             context.tipoConsulta = "CONSULTA_STOCK";
             context.productos = productosFiltrados;
             context.registros = productosFiltrados.stream().map(this::toProductoMap).collect(Collectors.toList());
@@ -392,8 +546,10 @@ public class ChatbotService {
                 context.productos = productosFiltrados;
                 context.registros = productosFiltrados.stream().map(this::toProductoMap).collect(Collectors.toList());
             } else if (textoLower.contains("venta")) {
+                List<VentaVO> ventas = data.ventas();
                 context.registros = ventas.stream().map(this::toVentaMap).collect(Collectors.toList());
             } else if (textoLower.contains("proveedor")) {
+                List<ProveedorVO> proveedores = data.proveedores();
                 context.registros = proveedores.stream().map(this::toProveedorMap).collect(Collectors.toList());
             } else {
                 context.registros = productos.stream().map(this::toProductoMap).collect(Collectors.toList());
@@ -402,10 +558,17 @@ public class ChatbotService {
             return context;
         }
 
-        context.tipoConsulta = "LISTAR_PRODUCTOS";
-        context.productos = productosFiltrados;
-        context.registros = productosFiltrados.stream().map(this::toProductoMap).collect(Collectors.toList());
-        context.totalResultados = context.registros.size();
+        if (esConsultaProducto(textoLower) || categoryFilter.tieneFiltros()) {
+            context.tipoConsulta = "LISTAR_PRODUCTOS";
+            context.productos = productosFiltrados;
+            context.registros = productosFiltrados.stream()
+                    .map(this::toProductoMap)
+                    .collect(Collectors.toList());
+            context.totalResultados = context.registros.size();
+            return context;
+        }
+
+        context.tipoConsulta = "CONSULTA_AMBIGUA";
         return context;
     }
 
@@ -424,23 +587,97 @@ public class ChatbotService {
                 .toList();
     }
 
-    private List<ProductoVO> filtrarPorCategoria(String texto, List<ProductoVO> productos) {
-        String categoria = null;
-        if (texto.contains("pastel") || texto.contains("torta")) {
-            categoria = "pastel";
-        } else if (texto.contains("pan")) {
-            categoria = "pan";
-        } else if (texto.contains("cafe")) {
-            categoria = "cafe";
-        }
-        if (categoria == null) {
-            return productos;
-        }
-        String filtro = categoria;
-        return productos.stream()
-                .filter(producto -> normalizarBusqueda(producto.getCategoria()).contains(filtro)
-                        || normalizarBusqueda(producto.getNombre()).contains(filtro))
+    private CategoryFilter filtroCategoria(String texto, List<ProductoVO> productos) {
+        List<String> categorias = productos.stream()
+                .map(ProductoVO::getCategoria)
+                .filter(Objects::nonNull)
+                .map(this::normalizarBusqueda)
+                .distinct()
                 .toList();
+        List<String> incluidas = new ArrayList<>();
+        List<String> excluidas = new ArrayList<>();
+        for (String categoria : categorias) {
+            List<String> alias = aliasCategoria(categoria);
+            List<String> mencionados = alias.stream().filter(texto::contains).toList();
+            if (mencionados.isEmpty()) {
+                continue;
+            }
+            if (categoriaNegada(texto, mencionados)) {
+                excluidas.add(categoria);
+            } else {
+                incluidas.add(categoria);
+            }
+        }
+        return new CategoryFilter(incluidas, excluidas);
+    }
+
+    private List<ProductoVO> filtrarPorCategoria(CategoryFilter filtro, List<ProductoVO> productos) {
+        return productos.stream()
+                .filter(producto -> {
+                    String categoria = normalizarBusqueda(producto.getCategoria());
+                    boolean incluida = filtro.incluidas().isEmpty()
+                            || filtro.incluidas().contains(categoria);
+                    return incluida && !filtro.excluidas().contains(categoria);
+                })
+                .toList();
+    }
+
+    private List<String> aliasCategoria(String categoria) {
+        LinkedHashSet<String> alias = new LinkedHashSet<>();
+        alias.add(categoria);
+        if (categoria.endsWith("es") && categoria.length() > 5) {
+            alias.add(categoria.substring(0, categoria.length() - 2));
+        }
+        if (categoria.endsWith("s") && categoria.length() > 4) {
+            alias.add(categoria.substring(0, categoria.length() - 1));
+        }
+        if (categoria.contains("pastel") || categoria.contains("torta")) {
+            alias.addAll(List.of("pastel", "pasteles", "torta", "tortas"));
+        }
+        if (categoria.contains("pan")) {
+            alias.addAll(List.of("pan", "panes", "panaderia"));
+        }
+        if (categoria.contains("cafe")) {
+            alias.addAll(List.of("cafe", "cafes"));
+        }
+        return List.copyOf(alias);
+    }
+
+    private boolean categoriaNegada(String texto, List<String> aliasMencionados) {
+        return aliasMencionados.stream().anyMatch(alias -> {
+            int posicion = texto.indexOf(alias);
+            if (posicion < 0) {
+                return false;
+            }
+            String prefijo = texto.substring(0, posicion).stripTrailing();
+            return prefijo.matches("(?s).*\\b(?:no|excepto|menos|sin)(?:\\s+\\w+){0,2}$");
+        });
+    }
+
+    private List<ProductoVO> candidatosComparacion(
+            List<ProductoVO> coincidenciasProducto,
+            List<ProductoVO> productosFiltrados,
+            ConversationMemory memory,
+            String texto) {
+        if (!coincidenciasProducto.isEmpty()) {
+            return coincidenciasProducto;
+        }
+        if (esComparacionContextual(texto) && memory.getUltimosProductos().size() > 1) {
+            return memory.getUltimosProductos();
+        }
+        if (texto.contains("de esos") || texto.contains("de estas")
+                || texto.contains("de estos") || texto.contains("entre esos")
+                || texto.contains("entre estos") || texto.contains("de la lista")
+                || texto.contains("los anteriores") || texto.contains("y cual")) {
+            if (!memory.getUltimosProductos().isEmpty()) {
+                return memory.getUltimosProductos();
+            }
+        }
+        if ((texto.contains("ese producto") || texto.contains("este producto")
+                || texto.contains("esa") || texto.contains("ese")) && memory.getUltimoProducto() != null) {
+            return List.of(memory.getUltimoProducto());
+        }
+        return productosFiltrados;
     }
 
     private boolean esConsultaProducto(String texto) {
@@ -450,7 +687,49 @@ public class ChatbotService {
 
     private boolean esConsultaConteo(String texto) {
         return texto.contains("cuantos") || texto.contains("cuantas")
-                || texto.contains("cantidad de") || texto.contains("total de");
+                || texto.contains("cantidad de") || texto.contains("total de")
+                || texto.contains("numero de");
+    }
+
+    private boolean esComparacionPrecio(String texto) {
+        return texto.contains("mas caro") || texto.contains("mas costoso")
+                || texto.contains("menos caro") || texto.contains("menos costoso")
+                || texto.contains("mas economico") || texto.contains("mas barato")
+                || texto.contains("menor precio") || texto.contains("mayor precio")
+                || texto.contains("menor costo") || texto.contains("mayor costo");
+    }
+
+    private boolean esPrecioMaximo(String texto) {
+        return texto.contains("mas caro") || texto.contains("mas costoso")
+                || texto.contains("mayor precio") || texto.contains("mayor costo");
+    }
+
+    private boolean esComparacionStock(String texto) {
+        return texto.contains("menos stock") || texto.contains("menor stock")
+                || texto.contains("mas stock") || texto.contains("mayor stock")
+                || texto.contains("menos existencia") || texto.contains("menor existencia")
+                || texto.contains("mas existencia") || texto.contains("mayor existencia")
+                || texto.contains("menos existencias") || texto.contains("menor cantidad de stock")
+                || texto.contains("mayor cantidad de stock") || texto.contains("mas cantidad de stock");
+    }
+
+    private boolean esStockMaximo(String texto) {
+        return texto.contains("mas stock") || texto.contains("mayor stock")
+                || texto.contains("mas existencia") || texto.contains("mayor existencia")
+                || texto.contains("mayor cantidad de stock") || texto.contains("mas cantidad de stock");
+    }
+
+    private boolean esComparacionContextual(String texto) {
+        boolean direccionComparativa = texto.contains("mas") || texto.contains("mayor")
+                || texto.contains("menos") || texto.contains("menor");
+        boolean referencia = texto.contains("cual") || texto.contains("que producto")
+                || texto.contains("que tiene")
+                || texto.contains("el que") || texto.contains("la que");
+        return direccionComparativa && referencia;
+    }
+
+    private boolean esComparacionMaximoContextual(String texto) {
+        return texto.contains("mas") || texto.contains("mayor");
     }
 
     private boolean esReferenciaConversacional(String texto) {
@@ -461,12 +740,81 @@ public class ChatbotService {
                 || texto.contains("cuanto queda") || texto.contains("cuantos quedan")
                 || texto.contains("cuantas quedan") || texto.contains("de ese")
                 || texto.contains("de la lista") || texto.contains("los anteriores")
-                || texto.contains("los otros") || texto.contains("las otras");
+                || texto.contains("los otros") || texto.contains("las otras")
+                || texto.contains("y el precio") || texto.contains("y ese")
+                || texto.contains("y esa") || texto.contains("y cual")
+                || texto.contains("de estos") || texto.contains("de esos")
+                || texto.contains("entre estos") || texto.contains("entre esos");
     }
 
     private boolean esConsultaVentas(String texto) {
-        return texto.contains("venta") || texto.contains("vend") || texto.contains("ingreso")
-                || texto.contains("dinero") || texto.contains("recaud") || texto.contains("obtuvo");
+        return texto.contains("venta") || texto.contains("vendio") || texto.contains("vendieron")
+                || texto.contains("vendido") || texto.contains("vendidos") || texto.contains("vendidas")
+                || texto.contains("vender") || texto.contains("ingreso") || texto.contains("dinero")
+                || texto.contains("recaud") || texto.contains("obtuvo") || texto.contains("pedido")
+                || texto.contains("transaccion");
+    }
+
+    private boolean esConsultaConteoVentas(String texto) {
+        return texto.contains("cuantos") || texto.contains("cuantas")
+                || texto.contains("cantidad de venta") || texto.contains("numero de venta")
+                || texto.contains("cantidad de transaccion") || texto.contains("numero de transaccion");
+    }
+
+    private boolean esConsultaMontoVentas(String texto) {
+        return texto.contains("dinero") || texto.contains("ingreso") || texto.contains("recaud")
+                || texto.contains("obtuvo") || texto.contains("total")
+                || (texto.contains("cuanto") && !texto.contains("unidad"));
+    }
+
+    private Optional<List<ProductoVO>> seleccionProductosVenta(
+            List<ProductoVO> coincidenciasProducto,
+            CategoryFilter categoryFilter,
+            List<ProductoVO> productosFiltrados,
+            ProductoVO productoReferencia,
+            String texto) {
+        if (!coincidenciasProducto.isEmpty()) {
+            return Optional.of(coincidenciasProducto);
+        }
+        if (categoryFilter.tieneFiltros()) {
+            return Optional.of(productosFiltrados);
+        }
+        if (productoReferencia != null && esReferenciaConversacional(texto)) {
+            return Optional.of(List.of(productoReferencia));
+        }
+        return Optional.empty();
+    }
+
+    private BigDecimal extraerStockSolicitado(String texto) {
+        Matcher matcher = STOCK_EXACTO_PATTERN.matcher(texto);
+        if (!matcher.find()) {
+            return null;
+        }
+        return new BigDecimal(matcher.group(1).replace(',', '.'));
+    }
+
+    private boolean esConsultaDeterminista(QueryContext context) {
+        return context.tipoConsulta != null && !"CONSULTA_AMBIGUA".equals(context.tipoConsulta);
+    }
+
+    private String respuestaConversacional(String texto) {
+        String mensaje = normalizarBusqueda(texto).toLowerCase(Locale.ROOT)
+                .replaceAll("[.!?¡¿,]+", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (mensaje.matches("(hola|holi|hey|hi|buenas|buen dia|buenos dias|buenas tardes|buenas noches)")) {
+            return "¡Hola! ¿En qué te gustaría que te ayude hoy con el inventario o las ventas?";
+        }
+        if (mensaje.matches("(gracias|muchas gracias|te agradezco|listo gracias)")) {
+            return "¡Con gusto! Si necesitas revisar algo más, aquí estoy.";
+        }
+        if (mensaje.matches("(adios|hasta luego|nos vemos|chao)")) {
+            return "¡Hasta luego! Cuando necesites consultar el inventario o las ventas, aquí estaré.";
+        }
+        if (mensaje.matches("(como estas|como te va)")) {
+            return "¡Muy bien, gracias por preguntar! ¿Qué te gustaría revisar?";
+        }
+        return null;
     }
 
     private boolean dentroDelPeriodo(LocalDate fecha, String texto) {
@@ -500,6 +848,16 @@ public class ChatbotService {
         return ventas.stream()
                 .map(VentaVO::getTotal)
                 .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private BigDecimal sumarDetalles(List<DetalleVentaVO> detalles) {
+        return detalles.stream()
+                .map(detalle -> detalle.getSubtotal() != null
+                        ? detalle.getSubtotal()
+                        : detalle.getPrecioUnitario() == null || detalle.getCantidad() == null
+                                ? BigDecimal.ZERO
+                                : detalle.getPrecioUnitario().multiply(detalle.getCantidad()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
@@ -608,6 +966,14 @@ public class ChatbotService {
                         })
                         .collect(Collectors.joining(", ")) + ".";
             }
+            case "LISTAR_PRODUCTOS" -> {
+                if (context.registros.isEmpty()) {
+                    return "No encontré productos que coincidan con esa consulta.";
+                }
+                return "Encontré estos productos: " + context.registros.stream()
+                        .map(item -> String.valueOf(((Map<?, ?>) item).get("nombre")))
+                        .collect(Collectors.joining(", ")) + ".";
+            }
             case "LISTAR_PRODUCTOS_AGOTADOS" -> {
                 if (context.registros == null || context.registros.isEmpty()) {
                     return "No hay productos agotados en esta base de datos.";
@@ -636,6 +1002,19 @@ public class ChatbotService {
                         .map(item -> (String) ((Map<?, ?>) item).get("nombreEmpresa"))
                         .collect(Collectors.joining(", ")) + ".";
             }
+            case "CONTAR_VENDEDORES" -> {
+                int count = numero(context, "cantidadVendedores");
+                return "Hay " + count + (count == 1
+                        ? " vendedor registrado." : " vendedores registrados.");
+            }
+            case "LISTAR_VENDEDORES" -> {
+                if (context.registros.isEmpty()) {
+                    return "No hay vendedores registrados.";
+                }
+                return "Los vendedores registrados son: " + context.registros.stream()
+                        .map(item -> String.valueOf(((Map<?, ?>) item).get("nombre")))
+                        .collect(Collectors.joining(", ")) + ".";
+            }
             case "CONTAR_VENTAS" -> {
                 int count = numero(context, "cantidadVentas");
                 return etiquetaPeriodo(context) + " se registraron " + count + (count == 1 ? " venta." : " ventas.");
@@ -659,7 +1038,12 @@ public class ChatbotService {
                 return "Ventas " + etiquetaPeriodo(context) + ":\n" + context.registros.stream()
                         .map(item -> {
                             Map<?, ?> registro = (Map<?, ?>) item;
-                            return "• Venta " + registro.get("idVenta") + " — "
+                            String vendedor = context.pregunta.contains("vendedor")
+                                    || context.pregunta.contains("quien")
+                                    ? " — Vendedor: " + Objects.toString(registro.get("nombreVendedor"),
+                                            "no identificado")
+                                    : "";
+                            return "• Venta " + registro.get("idVenta") + vendedor + " — "
                                     + registro.get("fechaVenta") + " — "
                                     + formatoDinero(decimal(registro.get("total"))) + " COP";
                         })
@@ -689,9 +1073,29 @@ public class ChatbotService {
                     return "No pude comparar los productos porque no tengo una lista previa con precios.";
                 }
                 Map<?, ?> producto = (Map<?, ?>) context.registros.get(0);
-                return "El producto " + producto.get("nombre") + " tiene el precio "
+                String nombres = context.registros.stream()
+                        .map(item -> String.valueOf(((Map<?, ?>) item).get("nombre")))
+                        .collect(Collectors.joining(", "));
+                return (context.registros.size() == 1
+                        ? "El producto " + nombres + " tiene el precio "
+                        : "Los productos " + nombres + " tienen el precio ")
                         + (context.compararMaximo ? "más alto: " : "más bajo: ")
                         + formatoDinero(decimal(producto.get("precioVenta"))) + " COP.";
+            }
+            case "COMPARAR_STOCK" -> {
+                if (context.registros.isEmpty()) {
+                    return "No encontré productos con una cantidad de stock registrada para comparar.";
+                }
+                Map<?, ?> producto = (Map<?, ?>) context.registros.get(0);
+                String nombres = context.registros.stream()
+                        .map(item -> String.valueOf(((Map<?, ?>) item).get("nombre")))
+                        .collect(Collectors.joining(", "));
+                String comparacion = context.compararStockMaximo ? "mayor" : "menor";
+                return (context.registros.size() == 1
+                        ? "El " + comparacion + " stock lo tiene "
+                        : "El " + comparacion + " stock lo tienen ")
+                        + nombres + ": " + producto.get("stock") + " "
+                        + unidadMedida(producto) + ".";
             }
             case "CONSULTA_STOCK" -> {
                 if (context.registros == null || context.registros.isEmpty()) {
@@ -703,6 +1107,20 @@ public class ChatbotService {
                             return registro.get("nombre") + ": " + registro.get("stock") + " en stock.";
                         })
                         .collect(Collectors.joining(" "));
+            }
+            case "BUSCAR_PRODUCTOS_POR_STOCK" -> {
+                BigDecimal stock = context.stockSolicitado;
+                String cantidad = stock.stripTrailingZeros().toPlainString();
+                if (context.registros.isEmpty()) {
+                    return "No encontré productos con exactamente " + cantidad + " unidades en stock.";
+                }
+                String nombres = context.registros.stream()
+                        .map(item -> String.valueOf(((Map<?, ?>) item).get("nombre")))
+                        .collect(Collectors.joining(", "));
+                return (context.registros.size() == 1
+                        ? "El producto con " + cantidad + " unidades en stock es: "
+                        : "Los productos con " + cantidad + " unidades en stock son: ")
+                        + nombres + ".";
             }
             case "PROVEEDOR_DE_PRODUCTO", "PRODUCTOS_POR_PROVEEDOR" -> {
                 if (context.registros == null || context.registros.isEmpty()) {
@@ -718,10 +1136,24 @@ public class ChatbotService {
             }
             case "CONTAR_REGISTROS" -> {
                 int total = context.registros == null ? 0 : context.registros.size();
-                return "Hay " + total + " registros en esta consulta.";
+                String entidad = entidadContada(context.pregunta);
+                return "Hay " + total + " " + (total == 1 ? entidad : pluralizar(entidad)) + ".";
             }
             case "SOLICITAR_ACLARACION" -> {
-                return "¿Qué productos quieres comparar? Puedo revisar los precios de los que me indiques.";
+                if (context.pregunta.contains("stock") || context.pregunta.contains("existencia")
+                        || context.pregunta.contains("queda")) {
+                    return "¿De qué producto quieres revisar las existencias? Indícame su nombre.";
+                }
+                if (context.pregunta.contains("precio") || context.pregunta.contains("cuesta")
+                        || context.pregunta.contains("vale") || context.pregunta.contains("barato")
+                        || context.pregunta.contains("caro")) {
+                    return "¿De qué producto quieres consultar el precio? Indícame su nombre o categoría.";
+                }
+                return "¿Qué productos quieres comparar? Indícame sus nombres o la categoría.";
+            }
+            case "CONSULTA_AMBIGUA" -> {
+                return "¿Qué te gustaría consultar: productos, existencias, proveedores o ventas? "
+                        + "Si tienes otra pregunta, cuéntame un poco más para orientarte.";
             }
             default -> {
                 if (context.registros == null || context.registros.isEmpty()) {
@@ -759,7 +1191,8 @@ public class ChatbotService {
     private Map<String, Object> toVentaMap(VentaVO venta) {
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("idVenta", venta.getIdVenta());
-        item.put("fechaVenta", venta.getFechaVenta());
+        item.put("fechaVenta", venta.getFechaVenta() == null ? null : venta.getFechaVenta().toString());
+        item.put("nombreVendedor", venta.getNombreVendedor());
         item.put("metodoPago", venta.getMetodoPago());
         item.put("estado", venta.getEstado());
         item.put("total", venta.getTotal());
@@ -791,6 +1224,32 @@ public class ChatbotService {
         return unit == null ? "unidades" : unit.toString();
     }
 
+    private String entidadContada(String pregunta) {
+        if (pregunta.contains("proveedor")) {
+            return pregunta.contains("disponible") ? "proveedor disponible" : "proveedor";
+        }
+        if (pregunta.contains("producto") || pregunta.contains("pastel")
+                || pregunta.contains("torta") || pregunta.contains("pan")
+                || pregunta.contains("cafe")) {
+            return pregunta.contains("disponible") ? "producto disponible" : "producto";
+        }
+        if (pregunta.contains("venta") || pregunta.contains("pedido")) {
+            return "venta";
+        }
+        return "registro";
+    }
+
+    private String pluralizar(String entidad) {
+        return switch (entidad) {
+            case "proveedor" -> "proveedores";
+            case "producto disponible" -> "productos disponibles";
+            case "proveedor disponible" -> "proveedores disponibles";
+            case "venta" -> "ventas";
+            case "registro" -> "registros";
+            default -> entidad + "s";
+        };
+    }
+
     private String etiquetaPeriodo(QueryContext context) {
         String question = context.pregunta;
         if (question.contains("hoy") || question.contains("del dia")) {
@@ -811,6 +1270,7 @@ public class ChatbotService {
     private static final class ConversationMemory {
         private ProductoVO ultimoProducto;
         private List<ProductoVO> ultimosProductos = new ArrayList<>();
+        private ComparisonDimension dimensionComparacion;
 
         public ProductoVO getUltimoProducto() {
             return ultimoProducto;
@@ -827,6 +1287,54 @@ public class ChatbotService {
         public void setUltimosProductos(List<ProductoVO> ultimosProductos) {
             this.ultimosProductos = ultimosProductos == null ? new ArrayList<>() : new ArrayList<>(ultimosProductos);
         }
+
+        public ComparisonDimension getDimensionComparacion() {
+            return dimensionComparacion;
+        }
+
+        public void setDimensionComparacion(ComparisonDimension dimensionComparacion) {
+            this.dimensionComparacion = dimensionComparacion;
+        }
+    }
+
+    private enum ComparisonDimension {
+        STOCK,
+        PRECIO
+    }
+
+    private final class QueryData {
+        private List<ProductoVO> productos;
+        private List<ProveedorVO> proveedores;
+        private List<VentaVO> ventas;
+        private List<DetalleVentaVO> detalles;
+
+        private List<ProductoVO> productos() {
+            if (productos == null) {
+                productos = productoDAO.listar();
+            }
+            return productos;
+        }
+
+        private List<ProveedorVO> proveedores() {
+            if (proveedores == null) {
+                proveedores = proveedorDAO.listar();
+            }
+            return proveedores;
+        }
+
+        private List<VentaVO> ventas() {
+            if (ventas == null) {
+                ventas = ventaDAO.listar();
+            }
+            return ventas;
+        }
+
+        private List<DetalleVentaVO> detalles() {
+            if (detalles == null) {
+                detalles = detalleVentaDAO.listar();
+            }
+            return detalles;
+        }
     }
 
     private static final class QueryContext {
@@ -838,5 +1346,13 @@ public class ChatbotService {
         private List<ProductoVO> productos = new ArrayList<>();
         private List<ProductoVO> productosParaMemoria = new ArrayList<>();
         private boolean compararMaximo;
+        private boolean compararStockMaximo;
+        private BigDecimal stockSolicitado;
+    }
+
+    private record CategoryFilter(List<String> incluidas, List<String> excluidas) {
+        private boolean tieneFiltros() {
+            return !incluidas.isEmpty() || !excluidas.isEmpty();
+        }
     }
 }

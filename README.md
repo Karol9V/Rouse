@@ -66,8 +66,10 @@ java -version
 
 ## Configuración
 
-La aplicación lee la conexión de base de datos de variables de entorno. Los
-valores predeterminados están definidos en `src/main/resources/application.properties`:
+La aplicación lee la configuración de variables de entorno y carga opcionalmente
+un archivo `.env` del directorio de trabajo en formato `CLAVE=valor` (el archivo
+está excluido de Git). Las variables de entorno tienen prioridad. Los valores
+predeterminados están definidos en `src/main/resources/application.properties`:
 
 | Variable | Predeterminado | Descripción |
 |---|---|---|
@@ -334,15 +336,21 @@ con el identificador de usuario de la sesión. Enviar un mensaje con
 `{"mensaje":"¿Cuántas ventas se realizaron hoy?"}` crea una conversación; incluir
 `conversacionId` continúa una conversación existente. El título se toma del
 primer mensaje. Al reabrir un chat, la UI recupera los mensajes y el backend
-reconstruye el contexto desde un máximo de ocho mensajes recientes. El historial
-no se reenvía en bruto a Gemini: solo se envían la pregunta actual, la intención
-resuelta y los registros necesarios.
+reconstruye el contexto desde un máximo de veinte mensajes recientes. Gemini
+recibe esos turnos con sus roles de usuario/asistente, junto con la consulta
+actual y los registros pertinentes; los saludos y las preguntas ambiguas no se
+interpretan automáticamente como listados de inventario.
+El contexto reconstruido también conserva la dimensión y los productos de una
+comparación reciente, por lo que seguimientos como «¿y cuál tiene más?» pueden
+continuar una comparación de stock o precio sin repetir el atributo.
 
 Las consultas de ventas separan el número de transacciones de sus ingresos y de
 las unidades vendidas. Las ventas anuladas, canceladas, rechazadas o pendientes
 no se incluyen en las métricas de ventas realizadas. Los productos vendidos se
 agrupan desde `detalle_venta` por producto y venta, evitando contar líneas como
-si fueran transacciones.
+si fueran transacciones. El asistente también muestra el vendedor asociado a
+cada venta, cuenta usuarios con rol de vendedor y busca productos por su stock
+exacto.
 
 ### Respuestas habituales
 

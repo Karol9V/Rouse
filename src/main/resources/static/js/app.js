@@ -148,9 +148,25 @@ function addChatMessage(role, text) {
     if (!container) return;
     const bubble = document.createElement('div');
     bubble.className = `message ${role}`;
+
+    if (role === 'assistant') {
+        const avatarWrap = document.createElement('div');
+        avatarWrap.className = 'message-avatar';
+        const avatar = document.createElement('img');
+        avatar.src = '/img/avatar.png?v=20261115-1';
+        avatar.alt = 'Candy';
+        avatar.width = 32;
+        avatar.height = 32;
+        avatarWrap.append(avatar);
+        bubble.append(avatarWrap);
+    }
+
+    const paragraphWrap = document.createElement('div');
+    paragraphWrap.className = 'message-content';
     const paragraph = document.createElement('p');
     paragraph.textContent = text;
-    bubble.append(paragraph);
+    paragraphWrap.append(paragraph);
+    bubble.append(paragraphWrap);
     container.append(bubble);
     container.scrollTop = container.scrollHeight;
 }
@@ -177,7 +193,7 @@ function toggleChatbot(forceOpen) {
 function resetChatMessages() {
     const messages = document.querySelector('#chatbotMessages');
     messages.replaceChildren();
-    addChatMessage('assistant', 'Hola, soy tu asistente de inventario y ventas. ¿En qué puedo ayudarte?');
+    addChatMessage('assistant', 'Soy Candy, tu asistente virtual de inventario y ventas. ¿En qué puedo ayudarte?');
 }
 
 function renderChatConversations(conversations) {
@@ -313,7 +329,7 @@ async function sendChatbotMessage(event) {
             body: JSON.stringify({mensaje: message, conversacionId: currentConversationId})
         });
         currentConversationId = response?.conversacionId ?? currentConversationId;
-        addChatMessage('assistant', response?.respuesta || 'No pude obtener una respuesta del asistente.');
+        addChatMessage('assistant', response?.respuesta || 'No pude obtener una respuesta de Candy.');
         try {
             await loadChatConversations();
         } catch (error) {

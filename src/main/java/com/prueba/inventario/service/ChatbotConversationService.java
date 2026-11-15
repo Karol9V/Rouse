@@ -19,6 +19,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class ChatbotConversationService {
 
     private static final int MAX_MESSAGE_LENGTH = 1000;
+    private static final int MAX_HISTORY_MESSAGES = 20;
 
     private final ChatConversationDAO conversationDAO;
     private final ChatbotService chatbotService;
@@ -61,7 +62,8 @@ public class ChatbotConversationService {
         ChatConversationVO conversation = idConversacion == null
                 ? conversationDAO.crear(idUsuario, "Nueva conversación")
                 : requireConversation(idUsuario, idConversacion);
-        List<ChatMessageVO> history = conversationDAO.listarHistorialReciente(conversation.idConversacion(), 8);
+        List<ChatMessageVO> history = conversationDAO.listarHistorialReciente(
+                conversation.idConversacion(), MAX_HISTORY_MESSAGES);
         if (history.isEmpty()) {
             conversationDAO.actualizarTitulo(
                     conversation.idConversacion(), idUsuario, crearTitulo(content));
