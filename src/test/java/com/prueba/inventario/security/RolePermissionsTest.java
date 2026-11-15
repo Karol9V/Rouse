@@ -33,6 +33,14 @@ class RolePermissionsTest {
     }
 
     @Test
+    void vendorCanManageOnlyChatbotConversationEndpoints() {
+        assertTrue(RolePermissions.canAccess(vendor, "/api/chatbot/conversations", "GET"));
+        assertTrue(RolePermissions.canAccess(vendor, "/api/chatbot/conversations", "POST"));
+        assertTrue(RolePermissions.canAccess(vendor, "/api/chatbot/conversations/1", "DELETE"));
+        assertFalse(RolePermissions.canAccess(vendor, "/api/chatbot/conversations/1", "PUT"));
+    }
+
+    @Test
     void administratorCanAccessAllModulesAndNormalizeRoleCase() {
         assertTrue(RolePermissions.canAccess(administrator, "/api/usuarios", "DELETE"));
         assertTrue(RolePermissions.canAccess(administrator, "/proveedores", "GET"));

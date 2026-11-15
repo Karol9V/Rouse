@@ -4,10 +4,12 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
@@ -34,16 +36,44 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Informa errores de conexión o acceso a datos.
+     * Distingue los errores del esquema de una caída de MySQL.
+     *
+     * @param exception error SQL de tabla o columna
+     * @return respuesta con una indicación para revisar el esquema
+     */
+    @ExceptionHandler(BadSqlGrammarException.class)
+    public ResponseEntity<Map<String, String>> handleSchemaError(BadSqlGrammarException exception) {
+        LOGGER.error("MySQL respondió, pero una tabla o columna del esquema no está disponible", exception);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("message", "MySQL respondió, pero falta una tabla o columna requerida. "
+                        + "Revisa que se haya aplicado el esquema del chatbot y consulta el registro del servidor."));
+    }
+
+    /**
+     * Informa fallas reales de conexión con el origen de datos.
+     *
+     * @param exception error al establecer o utilizar la conexión
+     * @return respuesta {@code 503 Service Unavailable}
+     */
+    @ExceptionHandler(DataAccessResourceFailureException.class)
+    public ResponseEntity<Map<String, String>> handleDatabaseConnectionError(
+            DataAccessResourceFailureException exception) {
+        LOGGER.error("No se pudo conectar con MySQL", exception);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(Map.of("message", "No se pudo conectar con MySQL. Verifica el host, puerto, credenciales y que el servidor esté activo."));
+    }
+
+    /**
+     * Informa otros errores de acceso a datos sin atribuirlos automáticamente a una caída de MySQL.
      *
      * @param exception error de acceso a datos
      * @return respuesta {@code 503 Service Unavailable}
      */
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<Map<String, String>> handleDatabaseError(DataAccessException exception) {
-        LOGGER.error("Error al consultar la base de datos", exception);
+        LOGGER.error("Falló una operación de acceso a datos", exception);
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(Map.of("message", "No se pudo acceder a la base de datos. Verifica que MySQL esté activo, que exista bd_pasteleria y que DB_HOST, DB_PORT, DB_USER y DB_PASSWORD sean correctos."));
+                .body(Map.of("message", "No se pudo completar la operación con la base de datos. Revisa los permisos, el esquema y el registro del servidor."));
     }
 
     /**

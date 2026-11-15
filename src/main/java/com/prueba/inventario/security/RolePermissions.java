@@ -56,10 +56,14 @@ public final class RolePermissions {
                     || isApiResource(path, "/api/productos")
                     || isApiResource(path, "/api/ventas")
                     || isApiResource(path, "/api/detalles-venta")
+                    || isApiResource(path, "/api/chatbot")
                     || path.equals("/api/auth/me");
         }
-        if (path.equals("/api/ventas")) {
+        if (path.equals("/api/ventas") || path.equals("/api/chatbot")) {
             return HttpMethod.POST.matches(method);
+        }
+        if (path.startsWith("/api/chatbot/")) {
+            return HttpMethod.POST.matches(method) || HttpMethod.DELETE.matches(method);
         }
         return isSale(path) && (HttpMethod.PUT.matches(method) || HttpMethod.DELETE.matches(method));
     }

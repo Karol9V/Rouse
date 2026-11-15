@@ -67,6 +67,10 @@
                 </button>
                 <span class="topbar-divider"></span>
                 <span class="today-label" id="todayLabel"></span>
+                <button class="chatbot-fab" id="chatbotFab" type="button" aria-label="Abrir asistente virtual">
+                    <span class="chatbot-fab-icon" aria-hidden="true">✦</span>
+                    <span class="chatbot-fab-label">Asistente</span>
+                </button>
             </div>
         </header>
 
@@ -146,6 +150,41 @@
     </main>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<aside class="chatbot-panel" id="chatbotPanel" aria-live="polite" aria-label="Asistente virtual">
+    <div class="chatbot-header">
+        <div>
+            <p>Asistente Virtual</p>
+            <small>Pastelería &amp; ventas</small>
+        </div>
+        <div class="chatbot-header-actions">
+            <button class="chatbot-action" id="newConversation" type="button">Nuevo</button>
+            <button class="chatbot-action" id="toggleChatHistory" type="button" aria-expanded="false">Historial</button>
+            <button class="chatbot-action" id="clearConversation" type="button" title="Limpiar conversación">Limpiar</button>
+            <button class="chatbot-close" id="closeChatbot" type="button" aria-label="Cerrar chatbot">×</button>
+        </div>
+    </div>
+    <div class="chatbot-body">
+        <nav class="chatbot-history" id="chatbotHistory" aria-label="Historial de conversaciones" hidden>
+            <h2>Conversaciones</h2>
+            <div class="chatbot-conversation-list" id="chatbotConversationList"></div>
+        </nav>
+        <div class="chatbot-main">
+            <div class="chatbot-messages" id="chatbotMessages">
+                <div class="message assistant">
+                    <p>Hola, soy tu asistente de inventario y ventas. ¿En qué puedo ayudarte?</p>
+                </div>
+            </div>
+            <div class="chatbot-status" id="chatbotStatus" hidden>Asistente escribiendo...</div>
+            <form class="chatbot-form" id="chatbotForm">
+                <label class="sr-only" for="chatbotInput">Pregunta</label>
+                <textarea id="chatbotInput" rows="3" maxlength="1000" placeholder="Escribe tu pregunta..." required></textarea>
+                <button class="button button-primary" type="submit">Enviar</button>
+            </form>
+        </div>
+    </div>
+</aside>
+
 <dialog class="record-dialog" id="recordDialog">
     <form id="recordForm" method="dialog">
         <div class="dialog-heading">

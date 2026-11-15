@@ -129,6 +129,9 @@ const canViewSection = section => isAdministrator()
 const canCreateInSection = section => isAdministrator() || (isVendor() && section === 'ventas');
 const canManageSection = section => isAdministrator() || (isVendor() && section === 'ventas');
 
+let currentConversationId = null;
+let chatbotBusy = false;
+
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
 })[character]);
@@ -138,6 +141,190 @@ function showToast(message) {
     toast.classList.add('show');
     clearTimeout(toastTimeout);
     toastTimeout = setTimeout(() => toast.classList.remove('show'), 3200);
+}
+
+function addChatMessage(role, text) {
+    const container = document.querySelector('#chatbotMessages');
+    if (!container) return;
+    const bubble = document.createElement('div');
+    bubble.className = `message ${role}`;
+    const paragraph = document.createElement('p');
+    paragraph.textContent = text;
+    bubble.append(paragraph);
+    container.append(bubble);
+    container.scrollTop = container.scrollHeight;
+}
+
+function setChatbotBusy(isBusy) {
+    chatbotBusy = isBusy;
+    const status = document.querySelector('#chatbotStatus');
+    const submitButton = document.querySelector('#chatbotForm button[type="submit"]');
+    if (status) status.hidden = !isBusy;
+    if (submitButton) {
+        submitButton.disabled = isBusy;
+        submitButton.textContent = isBusy ? 'Enviando...' : 'Enviar';
+    }
+}
+
+function toggleChatbot(forceOpen) {
+    const panel = document.querySelector('#chatbotPanel');
+    if (!panel) return;
+    const open = typeof forceOpen === 'boolean' ? forceOpen : !panel.classList.contains('open');
+    panel.classList.toggle('open', open);
+    if (open) void initializeChatbotPanel();
+}
+
+function resetChatMessages() {
+    const messages = document.querySelector('#chatbotMessages');
+    messages.replaceChildren();
+    addChatMessage('assistant', 'Hola, soy tu asistente de inventario y ventas. ¿En qué puedo ayudarte?');
+}
+
+function renderChatConversations(conversations) {
+    const list = document.querySelector('#chatbotConversationList');
+    list.replaceChildren();
+    if (!conversations.length) {
+        const empty = document.createElement('p');
+        empty.className = 'chatbot-history-empty';
+        empty.textContent = 'Todavía no tienes conversaciones.';
+        list.append(empty);
+        return;
+    }
+
+    conversations.forEach(conversation => {
+        const row = document.createElement('div');
+        row.className = 'chatbot-conversation-row';
+        const open = document.createElement('button');
+        open.type = 'button';
+        open.className = 'chatbot-conversation-open';
+        open.classList.toggle('active', conversation.idConversacion === currentConversationId);
+        const title = document.createElement('span');
+        title.textContent = conversation.titulo;
+        const date = document.createElement('small');
+        date.textContent = new Intl.DateTimeFormat('es-CO', {
+            day: 'numeric', month: 'short'
+        }).format(new Date(conversation.fechaActualizacion));
+        open.append(title, date);
+        open.addEventListener('click', () => void openChatConversation(conversation.idConversacion));
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'chatbot-conversation-delete';
+        remove.textContent = '×';
+        remove.setAttribute('aria-label', `Eliminar ${conversation.titulo}`);
+        remove.addEventListener('click', () => void deleteChatConversation(conversation));
+        row.append(open, remove);
+        list.append(row);
+    });
+}
+
+async function loadChatConversations() {
+    const conversations = await request('/api/chatbot/conversations');
+    renderChatConversations(conversations || []);
+    return conversations || [];
+}
+
+async function initializeChatbotPanel() {
+    try {
+        const conversations = await loadChatConversations();
+        if (currentConversationId === null && conversations.length) {
+            await openChatConversation(conversations[0].idConversacion);
+        }
+    } catch (error) {
+        showToast(error.message);
+    }
+}
+
+async function createChatConversation() {
+    try {
+        const conversation = await request('/api/chatbot/conversations', {method: 'POST'});
+        currentConversationId = conversation.idConversacion;
+        resetChatMessages();
+        await loadChatConversations();
+        document.querySelector('#chatbotInput').focus();
+    } catch (error) {
+        showToast(error.message);
+    }
+}
+
+async function openChatConversation(idConversacion) {
+    try {
+        const messages = await request(`/api/chatbot/conversations/${idConversacion}/messages`);
+        currentConversationId = idConversacion;
+        resetChatMessages();
+        if (messages?.length) {
+            document.querySelector('#chatbotMessages').replaceChildren();
+            messages.forEach(message => addChatMessage(
+                message.emisor === 'USUARIO' ? 'user' : 'assistant', message.contenido));
+        }
+        await loadChatConversations();
+    } catch (error) {
+        showToast(error.message);
+    }
+}
+
+async function deleteChatConversation(conversation) {
+    if (!window.confirm(`¿Eliminar la conversación "${conversation.titulo}"?`)) return;
+    try {
+        await request(`/api/chatbot/conversations/${conversation.idConversacion}`, {method: 'DELETE'});
+        if (currentConversationId === conversation.idConversacion) {
+            currentConversationId = null;
+            resetChatMessages();
+        }
+        const remaining = await loadChatConversations();
+        if (currentConversationId === null && remaining.length) {
+            await openChatConversation(remaining[0].idConversacion);
+        }
+    } catch (error) {
+        showToast(error.message);
+    }
+}
+
+async function clearChatConversation() {
+    if (!currentConversationId) {
+        resetChatMessages();
+        return;
+    }
+    if (!window.confirm('¿Limpiar todos los mensajes de esta conversación?')) return;
+    try {
+        await request(`/api/chatbot/conversations/${currentConversationId}/messages`, {method: 'DELETE'});
+        resetChatMessages();
+        await loadChatConversations();
+    } catch (error) {
+        showToast(error.message);
+    }
+}
+
+async function sendChatbotMessage(event) {
+    event.preventDefault();
+    if (chatbotBusy) return;
+    const input = document.querySelector('#chatbotInput');
+    const message = input?.value.trim();
+    if (!message) {
+        showToast('Escribe una pregunta antes de enviar el mensaje.');
+        return;
+    }
+    addChatMessage('user', message);
+    input.value = '';
+    setChatbotBusy(true);
+    try {
+        const response = await request('/api/chatbot', {
+            method: 'POST',
+            body: JSON.stringify({mensaje: message, conversacionId: currentConversationId})
+        });
+        currentConversationId = response?.conversacionId ?? currentConversationId;
+        addChatMessage('assistant', response?.respuesta || 'No pude obtener una respuesta del asistente.');
+        try {
+            await loadChatConversations();
+        } catch (error) {
+            showToast(error.message);
+        }
+    } catch (error) {
+        addChatMessage('assistant', error.message || 'No fue posible procesar la consulta.');
+        showToast(error.message);
+    } finally {
+        setChatbotBusy(false);
+    }
 }
 
 async function request(url, options = {}) {
@@ -645,6 +832,16 @@ document.querySelector('#mobileMenu').addEventListener('click', () => {
 });
 document.querySelector('.notification-button').addEventListener('click', () => {
     showToast('No hay notificaciones nuevas.');
+});
+document.querySelector('#chatbotFab').addEventListener('click', () => toggleChatbot());
+document.querySelector('#closeChatbot').addEventListener('click', () => toggleChatbot(false));
+document.querySelector('#chatbotForm').addEventListener('submit', sendChatbotMessage);
+document.querySelector('#newConversation').addEventListener('click', createChatConversation);
+document.querySelector('#clearConversation').addEventListener('click', clearChatConversation);
+document.querySelector('#toggleChatHistory').addEventListener('click', event => {
+    const history = document.querySelector('#chatbotHistory');
+    history.hidden = !history.hidden;
+    event.currentTarget.setAttribute('aria-expanded', String(!history.hidden));
 });
 document.querySelector('#logoutButton').addEventListener('click', async () => {
     try {
