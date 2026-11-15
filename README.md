@@ -34,6 +34,8 @@ autenticación mediante sesión.
 - Descuento de inventario al registrar una venta; se rechaza la operación si
   falta el producto o no hay existencias suficientes.
 - Interfaz web en español con vistas Thymeleaf y cliente JavaScript.
+- Asistente administrativo con Gemini, historial persistente de conversaciones
+  por usuario y métricas de ventas separadas por transacciones, ingresos y unidades.
 - API REST JSON con respuestas HTTP y manejo centralizado de errores.
 
 ## Tecnologías
@@ -73,6 +75,8 @@ valores predeterminados están definidos en `src/main/resources/application.prop
 | `DB_PORT` | `3306` | Puerto MySQL |
 | `DB_USER` | `root` | Usuario MySQL |
 | `DB_PASSWORD` | *(vacío)* | Contraseña MySQL |
+| `GEMINI_API_KEY` | *(vacío)* | Clave de Gemini; sin ella se usa la respuesta local |
+| `GEMINI_MODEL` | `gemini-4-hydrogen` | Modelo configurado para Gemini |
 
 La base de datos esperada se llama `bd_pasteleria`. Configura las variables antes
 de iniciar la aplicación, por ejemplo, en PowerShell:
@@ -86,6 +90,9 @@ $env:DB_PASSWORD = "tu contraseña"
 
 No guardes credenciales reales en el repositorio. Usa las variables de entorno
 correspondientes al entorno local o de despliegue.
+
+La aplicación no carga archivos `.env` automáticamente; configura las variables
+en la terminal o en la configuración de ejecución del IDE.
 
 ## Ejecución
 
@@ -310,6 +317,33 @@ es opcional y depende de los valores aceptados por el sistema.
 El cuerpo de creación/actualización contiene `idVenta`, `idProducto`,
 `cantidad` y `precioUnitario`.
 
+### Chatbot — `/api/chatbot`
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST` | `/api/chatbot` | Envía un mensaje; incluye `conversacionId` para continuar una conversación existente |
+| `GET` | `/api/chatbot/conversations` | Lista las conversaciones del usuario autenticado |
+| `POST` | `/api/chatbot/conversations` | Crea una conversación vacía |
+| `GET` | `/api/chatbot/conversations/{id}/messages` | Recupera los mensajes de una conversación propia |
+| `DELETE` | `/api/chatbot/conversations/{id}/messages` | Limpia sus mensajes |
+| `DELETE` | `/api/chatbot/conversations/{id}` | Elimina la conversación y sus mensajes |
+
+Todas estas operaciones requieren sesión autenticada y token CSRF en las
+solicitudes de escritura. El backend verifica la propiedad de cada conversación
+con el identificador de usuario de la sesión. Enviar un mensaje con
+`{"mensaje":"¿Cuántas ventas se realizaron hoy?"}` crea una conversación; incluir
+`conversacionId` continúa una conversación existente. El título se toma del
+primer mensaje. Al reabrir un chat, la UI recupera los mensajes y el backend
+reconstruye el contexto desde un máximo de ocho mensajes recientes. El historial
+no se reenvía en bruto a Gemini: solo se envían la pregunta actual, la intención
+resuelta y los registros necesarios.
+
+Las consultas de ventas separan el número de transacciones de sus ingresos y de
+las unidades vendidas. Las ventas anuladas, canceladas, rechazadas o pendientes
+no se incluyen en las métricas de ventas realizadas. Los productos vendidos se
+agrupan desde `detalle_venta` por producto y venta, evitando contar líneas como
+si fueran transacciones.
+
 ### Respuestas habituales
 
 - `200 OK`: consulta correcta.
@@ -343,10 +377,13 @@ La persistencia se realiza con JDBC y MySQL. El código consulta las tablas
 `usuarios`, `productos`, `proveedores`, `ventas` y `detalle_venta`, incluyendo
 relaciones entre ventas, usuarios y productos.
 
-El repositorio no incluye scripts SQL ni migraciones para crear la base de datos
-o sus tablas. Antes de ejecutar la aplicación, prepara `bd_pasteleria` con un
-esquema compatible con los DAO del proyecto. La aplicación requiere permisos
-de lectura y escritura para el usuario configurado.
+El proyecto no cuenta con un sistema general de migraciones. Al iniciar, Spring
+aplica [`src/main/resources/db/chatbot-conversations.sql`](./src/main/resources/db/chatbot-conversations.sql)
+para crear de forma idempotente `chat_conversations` y `chat_messages`, enlazadas
+a `usuarios` y con borrado en cascada. Por eso, el usuario MySQL configurado
+necesita permiso para crear esas tablas; también puedes ejecutar el mismo script
+con MySQL Workbench si tu despliegue administra el esquema por separado. El resto
+del esquema debe estar preparado de acuerdo con los DAO existentes.
 
 ## Manejo de errores
 
@@ -354,6 +391,8 @@ El manejador REST centralizado traduce errores comunes a respuestas JSON:
 
 - Violaciones de integridad de la base de datos: `409 Conflict`.
 - Errores de acceso a datos: `503 Service Unavailable`.
+- Tablas o columnas no disponibles: `500 Internal Server Error`, con indicación
+  de que MySQL respondió y se debe revisar el esquema.
 - JSON inválido: `400 Bad Request`.
 - Errores de estado generados por los controladores (por ejemplo, stock
   insuficiente): conservan el estado HTTP correspondiente.
