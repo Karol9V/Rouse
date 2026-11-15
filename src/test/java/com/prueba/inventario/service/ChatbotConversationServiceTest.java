@@ -39,7 +39,7 @@ class ChatbotConversationServiceTest {
         ChatConversationVO conversation = new ChatConversationVO(
                 41L, 7L, "Nueva conversación", LocalDateTime.now(), LocalDateTime.now());
         when(dao.crear(7L, "Nueva conversación")).thenReturn(conversation);
-        when(dao.listarHistorialReciente(41L, 8)).thenReturn(List.of());
+        when(dao.listarHistorialReciente(41L, 20)).thenReturn(List.of());
         when(chatbotService.responder("¿Cuántas ventas hay?", List.of()))
                 .thenReturn("Hay 3 ventas.");
         ChatbotConversationService service = new ChatbotConversationService(dao, chatbotService);

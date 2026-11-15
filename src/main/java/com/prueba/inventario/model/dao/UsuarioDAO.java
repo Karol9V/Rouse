@@ -48,6 +48,27 @@ public class UsuarioDAO {
         return jdbcTemplate.query(SELECT_COLUMNAS + " ORDER BY id_usuario", rowMapper);
     }
 
+    public int contarVendedores() {
+        Integer total = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM usuarios
+                WHERE LOWER(TRIM(rol)) = 'vendedor'
+                """, Integer.class);
+        if (total == null) {
+            throw new IllegalStateException("No se pudo contar los vendedores registrados.");
+        }
+        return total;
+    }
+
+    public List<String> listarVendedores() {
+        return jdbcTemplate.queryForList("""
+                SELECT TRIM(CONCAT_WS(' ', nombre, apellido))
+                FROM usuarios
+                WHERE LOWER(TRIM(rol)) = 'vendedor'
+                ORDER BY nombre, apellido
+                """, String.class);
+    }
+
     /**
      * Busca un usuario por identificador.
      *

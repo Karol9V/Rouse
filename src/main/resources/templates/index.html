@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#fff8f7">
     <title>Rouse | Pastelería &amp; Café</title>
     <link rel="icon" type="image/png" href="/img/logo.png">
-    <link rel="stylesheet" href="/css/styles.css">
+    <link rel="stylesheet" href="/css/styles.css?v=20261115-1">
 </head>
 <body th:attr="data-initial-view=${initialView}">
 <div class="app-shell">
@@ -73,6 +73,7 @@
                 </button>
             </div>
         </header>
+
 
         <div class="page-content">
             <section class="view-panel visible" id="view-inicio">
@@ -151,11 +152,11 @@
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<aside class="chatbot-panel" id="chatbotPanel" aria-live="polite" aria-label="Asistente virtual">
+<aside class="chatbot-panel" id="chatbotPanel" aria-live="polite" aria-label="Candy">
     <div class="chatbot-header">
         <div>
-            <p>Asistente Virtual</p>
-            <small>Pastelería &amp; ventas</small>
+            <p>Candy</p>
+            <small>Asistente</small>
         </div>
         <div class="chatbot-header-actions">
             <button class="chatbot-action" id="newConversation" type="button">Nuevo</button>
@@ -172,10 +173,13 @@
         <div class="chatbot-main">
             <div class="chatbot-messages" id="chatbotMessages">
                 <div class="message assistant">
-                    <p>Hola, soy tu asistente de inventario y ventas. ¿En qué puedo ayudarte?</p>
+                    <span class="message-avatar"><img src="/img/avatar.png?v=20261115-1" alt="Candy" width="32" height="32"></span>
+                    <div class="message-content">
+                        <p>Soy Candy, tu asistente virtual de inventario y ventas. ¿En qué puedo ayudarte?</p>
+                    </div>
                 </div>
             </div>
-            <div class="chatbot-status" id="chatbotStatus" hidden>Asistente escribiendo...</div>
+            <div class="chatbot-status" id="chatbotStatus" hidden>Candy está escribiendo...</div>
             <form class="chatbot-form" id="chatbotForm">
                 <label class="sr-only" for="chatbotInput">Pregunta</label>
                 <textarea id="chatbotInput" rows="3" maxlength="1000" placeholder="Escribe tu pregunta..." required></textarea>
@@ -207,6 +211,6 @@
         </div>
     </form>
 </dialog>
-<script src="/js/app.js"></script>
+<script src="/js/app.js?v=20261115-1"></script>
 </body>
 </html>
